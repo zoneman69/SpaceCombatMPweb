@@ -1,0 +1,13 @@
+{
+  "name": "@space-combat/shared",
+  "version": "0.0.1",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "eslint src --max-warnings=0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
