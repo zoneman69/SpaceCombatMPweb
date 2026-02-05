@@ -1,0 +1,13 @@
+{
+  "name": "space-combat-mp",
+  "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:server": "pnpm --filter @space-combat/server dev",
+    "dev:client": "pnpm --filter @space-combat/client dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint"
+  }
+}
