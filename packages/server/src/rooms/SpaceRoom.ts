@@ -1,4 +1,4 @@
-import { Room, Client } from "colyseus";
+import * as Colyseus from "colyseus";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
 import { SpaceState, UnitSchema } from "../state/SpaceState.js";
