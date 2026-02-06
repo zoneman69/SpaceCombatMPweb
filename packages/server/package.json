@@ -10,10 +10,14 @@
     "lint": "eslint src --max-warnings=0"
   },
   "dependencies": {
-    "@colyseus/schema": "^2.0.34",
-    "@colyseus/ws-transport": "^0.15.2",
+    "@colyseus/schema": "^3.0.0",
+    "@colyseus/core": "^0.16.0",
+    "@colyseus/auth": "^0.16.0",
+    "@colyseus/redis-driver": "^0.16.0",
+    "@colyseus/redis-presence": "^0.16.0",
+    "@colyseus/ws-transport": "^0.16.0",
     "@space-combat/shared": "workspace:*",
-    "colyseus": "^0.15.20",
+    "colyseus": "^0.16.0",
     "express": "^4.19.2",
     "nanoid": "^5.0.7"
   },
