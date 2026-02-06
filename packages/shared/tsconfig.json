@@ -8,6 +8,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "experimentalDecorators": true,
+    "skipLibCheck": true,
     "strict": true,
     "target": "ES2022"
   },
