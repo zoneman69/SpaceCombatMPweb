@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "pnpm --filter @space-combat/shared build && vite build",
     "lint": "eslint src --max-warnings=0"
   },
   "dependencies": {
