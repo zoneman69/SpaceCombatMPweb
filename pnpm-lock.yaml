@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+overrides:
+  '@colyseus/schema': 2.0.37
+
 importers:
 
   .: {}
@@ -45,7 +48,7 @@ importers:
   packages/server:
     dependencies:
       '@colyseus/schema':
-        specifier: ^2.0.4
+        specifier: 2.0.37
         version: 2.0.37
       '@colyseus/ws-transport':
         specifier: ^0.15.2
@@ -79,7 +82,7 @@ importers:
   packages/shared:
     dependencies:
       '@colyseus/schema':
-        specifier: ^2.0.4
+        specifier: 2.0.37
         version: 2.0.37
     devDependencies:
       typescript:
@@ -182,7 +185,7 @@ packages:
     resolution: {integrity: sha512-tAKNaFSFOpRH2ayLva9hQBVPQu0eKxDxaZJYugZMQ5i6yQ2RTvcbk/5Up7OZn/bfdk9THvBYnh6WfdZAOctK+g==}
     engines: {node: '>= 14.x'}
     peerDependencies:
-      '@colyseus/schema': ^2.0.4
+      '@colyseus/schema': 2.0.37
 
   '@colyseus/greeting-banner@2.0.6':
     resolution: {integrity: sha512-65nK7KnJn6g3ArtJqNfVX+Mx7xTlBka04kSwloLP7s24UpCEaK7bMGRLgkzfnysARzlVh1eV4jynBWZN82dYwQ==}
@@ -201,7 +204,7 @@ packages:
     resolution: {integrity: sha512-wm1AT1d6esUnZt1sUvrPcq9hkDBhZKZiB+fHCZEaPw3QDtG9slbOaZZ9Evr2DlxUUAaHU0H2qV3kchBYyL68UQ==}
     peerDependencies:
       '@colyseus/core': 0.15.x
-      '@colyseus/schema': '>=1.0.0'
+      '@colyseus/schema': 2.0.37
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -878,7 +881,7 @@ packages:
     resolution: {integrity: sha512-h9hkmXOvcreRhJxdu73BJctGEPYW36ImHByjiMhEOIuSQLcNSlkcwaqCll/7Oc/cTELHStTa5eyOnI640mOe8A==}
     engines: {node: '>= 14.x'}
     peerDependencies:
-      '@colyseus/schema': ^2.0.0
+      '@colyseus/schema': 2.0.37
 
   concat-map@0.0.1:
     resolution: {integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==}
