@@ -5,29 +5,49 @@
 
 body {
   margin: 0;
-  background: #070b18;
+  background: radial-gradient(circle at top, #111b33 0%, #070b18 55%, #050710 100%);
   color: #e6edf3;
 }
 
 .app {
-  max-width: 960px;
+  max-width: 1120px;
   margin: 0 auto;
-  padding: 48px 24px 64px;
+  padding: 56px 24px 80px;
 }
 
-header {
-  margin-bottom: 32px;
+.lobby-header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 40px;
 }
 
 h1 {
-  font-size: 2.5rem;
+  font-size: clamp(2.5rem, 4vw, 3.4rem);
   margin: 0 0 12px;
 }
 
-main {
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.7rem;
+  color: #8aa4d1;
+  margin: 0 0 12px;
+}
+
+.subhead {
+  max-width: 520px;
+  margin: 0;
+  color: #c7d5ed;
+  line-height: 1.6;
+}
+
+.lobby-grid {
   display: grid;
   gap: 24px;
-  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 }
 
 .panel {
@@ -42,7 +62,126 @@ main {
   margin-top: 0;
 }
 
-ul,
-ol {
-  padding-left: 20px;
+.lobby-status {
+  min-width: min(360px, 100%);
+  display: grid;
+  gap: 12px;
+}
+
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.status-label {
+  font-size: 0.85rem;
+  color: #9ab0d6;
+}
+
+.status-pill {
+  font-size: 0.9rem;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(80, 97, 130, 0.3);
+  border: 1px solid rgba(140, 160, 200, 0.25);
+}
+
+.status-pill.online {
+  background: rgba(66, 184, 131, 0.2);
+  border-color: rgba(66, 184, 131, 0.5);
+  color: #bff3d6;
+}
+
+.status-pill.offline {
+  background: rgba(244, 63, 94, 0.15);
+  border-color: rgba(244, 63, 94, 0.4);
+  color: #fca5a5;
+}
+
+.status-meta {
+  margin: 0;
+  color: #a4b5d9;
+}
+
+.lobby-card {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.lobby-room {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.room-name {
+  margin: 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.room-desc {
+  margin: 6px 0 0;
+  color: #b5c5e3;
+  line-height: 1.5;
+}
+
+.room-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.room-stats span {
+  display: block;
+  font-size: 0.8rem;
+  color: #8aa4d1;
+}
+
+.room-stats strong {
+  font-size: 1rem;
+}
+
+.lobby-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.btn {
+  border-radius: 999px;
+  padding: 10px 18px;
+  border: 1px solid #2a395c;
+  background: #0b1324;
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease;
+}
+
+.btn:hover {
+  transform: translateY(-1px);
+  border-color: #3c5486;
+}
+
+.btn.primary {
+  background: linear-gradient(135deg, #4f8cff, #3dd7d0);
+  border: none;
+  color: #07111f;
+}
+
+.brief-list {
+  margin: 0;
+  padding-left: 18px;
+  color: #c7d5ed;
+  line-height: 1.6;
+}
+
+@media (min-width: 960px) {
+  .lobby-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
