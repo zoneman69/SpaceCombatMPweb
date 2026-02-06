@@ -5,6 +5,8 @@ import colyseusPkg from "colyseus.js/package.json";
 import { SpaceState } from "@space-combat/shared";
 import TacticalView from "./TacticalView";
 
+void SpaceState;
+
 type Player = {
   id: string;
   name: string;
