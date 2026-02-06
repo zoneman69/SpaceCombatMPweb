@@ -1,18 +1,28 @@
 import "../styles/app.css";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
 
 export default function App() {
   const [status, setStatus] = useState("idle");
+  const [isBusy, setIsBusy] = useState(false);
+  const roomRef = useRef<any>(null);
 
-  useEffect(() => {
-    let room: any;
-
-    (async () => {
+  const connect = useCallback(
+    async (mode: "join" | "create") => {
       try {
-        setStatus(`connecting to ${WS_URL}...`);
-        room = await colyseus.joinOrCreate("space");
-        setStatus(`connected ✅ roomId=${room.id}`);
+        setIsBusy(true);
+        setStatus(
+          mode === "create"
+            ? "creating squad room..."
+            : `connecting to ${WS_URL}...`,
+        );
+        await roomRef.current?.leave?.();
+        const room =
+          mode === "create"
+            ? await colyseus.create("space")
+            : await colyseus.joinOrCreate("space");
+        roomRef.current = room;
+        setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
 
         // TEMP: log state changes
         room.onStateChange((state: any) => {
@@ -21,11 +31,17 @@ export default function App() {
       } catch (e: any) {
         setStatus(`connect failed ❌ ${e?.message || e}`);
         console.error(e);
+      } finally {
+        setIsBusy(false);
       }
-    })();
+    },
+    [setStatus],
+  );
 
-    return () => room?.leave?.();
-  }, []);
+  useEffect(() => {
+    void connect("join");
+    return () => roomRef.current?.leave?.();
+  }, [connect]);
 
   return (
     <div className="app">
@@ -84,10 +100,20 @@ export default function App() {
             </div>
           </div>
           <div className="lobby-actions">
-            <button className="btn primary" type="button">
+            <button
+              className="btn primary"
+              type="button"
+              onClick={() => connect("join")}
+              disabled={isBusy}
+            >
               Join briefing
             </button>
-            <button className="btn" type="button">
+            <button
+              className="btn"
+              type="button"
+              onClick={() => connect("create")}
+              disabled={isBusy}
+            >
               Create squad room
             </button>
           </div>
