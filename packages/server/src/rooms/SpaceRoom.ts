@@ -1,4 +1,3 @@
-import { createRequire } from "module";
 import Colyseus from "colyseus";
 import { createRequire } from "module";
 import { nanoid } from "nanoid";
