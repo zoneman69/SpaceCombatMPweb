@@ -1,3 +1,4 @@
+import type { MapSchema } from "@colyseus/schema";
 import type { ShipStats } from "@space-combat/shared";
 import type { UnitSchema } from "../state/SpaceState.js";
 
@@ -12,8 +13,13 @@ const wrapAngle = (angle: number) => {
   return a;
 };
 
+type UnitCollection = Pick<
+  Map<string, UnitSchema> | MapSchema<UnitSchema>,
+  "get" | "values"
+>;
+
 export type SimContext = {
-  units: Map<string, UnitSchema>;
+  units: UnitCollection;
   stats: ShipStats;
   dt: number;
 };
@@ -26,7 +32,7 @@ export const simulate = ({ units, stats, dt }: SimContext) => {
 
 const updateUnit = (
   unit: UnitSchema,
-  units: Map<string, UnitSchema>,
+  units: UnitCollection,
   stats: ShipStats,
   dt: number,
 ) => {

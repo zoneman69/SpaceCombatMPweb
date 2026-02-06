@@ -1,5 +1,5 @@
 import http from "http";
-import express from "express";
+import express, { type Request, type Response } from "express";
 import Colyseus from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { SpaceRoom } from "./rooms/SpaceRoom.js";
@@ -7,7 +7,7 @@ import { SpaceRoom } from "./rooms/SpaceRoom.js";
 const port = Number(process.env.PORT ?? 2567);
 
 const app = express();
-app.get("/", (_req, res) => {
+app.get("/", (_req: Request, res: Response) => {
   res.send("Space Combat server running");
 });
 
