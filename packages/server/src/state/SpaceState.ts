@@ -17,6 +17,22 @@ export class UnitSchema extends Schema {
   @type("number") weaponCooldownLeft = 0;
 }
 
+export class LobbyPlayerSchema extends Schema {
+  @type("string") id = "";
+  @type("string") name = "";
+  @type("boolean") ready = false;
+}
+
+export class LobbyRoomSchema extends Schema {
+  @type("string") id = "";
+  @type("string") name = "";
+  @type("string") mode = "";
+  @type("string") hostId = "";
+  @type("string") hostName = "";
+  @type({ map: LobbyPlayerSchema }) players = new MapSchema<LobbyPlayerSchema>();
+}
+
 export class SpaceState extends Schema {
   @type({ map: UnitSchema }) units = new MapSchema<UnitSchema>();
+  @type({ map: LobbyRoomSchema }) lobbyRooms = new MapSchema<LobbyRoomSchema>();
 }
