@@ -15,6 +15,7 @@
     "@space-combat/shared": "workspace:*",
     "colyseus": "^0.15.57",
     "express": "^4.19.2",
+    "@types/express": "^4.17.21",
     "nanoid": "^5.0.7"
   },
   "devDependencies": {
