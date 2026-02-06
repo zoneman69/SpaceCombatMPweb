@@ -231,7 +231,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       return;
     }
     if (room.hostId === sessionId) {
-      const nextHost = Array.from(room.players.values())[0];
+      const [nextHost] = Array.from(
+        room.players.values(),
+      ) as LobbyPlayerSchema[];
       if (nextHost) {
         room.hostId = nextHost.id;
         room.hostName = nextHost.name;
