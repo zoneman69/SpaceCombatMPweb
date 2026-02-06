@@ -1,5 +1,6 @@
 import { createRequire } from "module";
 import Colyseus from "colyseus";
+import { createRequire } from "module";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
 import {
