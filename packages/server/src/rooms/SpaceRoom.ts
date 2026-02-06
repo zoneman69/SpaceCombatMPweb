@@ -1,3 +1,4 @@
+import { createRequire } from "module";
 import Colyseus from "colyseus";
 import { createRequire } from "module";
 import { nanoid } from "nanoid";
@@ -24,7 +25,6 @@ const DEFAULT_STATS: ShipStats = {
 const TICK_RATE = 20;
 const require = createRequire(import.meta.url);
 const colyseusPkg = require("colyseus/package.json");
-const schemaPkg = require("@colyseus/schema/package.json");
 
 export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
@@ -36,7 +36,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
     console.log("[lobby] space room created", {
       colyseus: colyseusPkg.version,
-      schema: schemaPkg.version,
     });
 
     this.onMessage("command", (client, message: Command) => {
