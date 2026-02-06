@@ -26,7 +26,7 @@ const UNIT_SPEED = 18;
 export default function TacticalView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const cameraRef = useRef<THREE.OrthographicCamera | null>(null);
+  const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const unitsRef = useRef<Unit[]>([]);
   const requestRef = useRef<number | null>(null);
@@ -43,7 +43,7 @@ export default function TacticalView() {
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const targetPlane = useMemo(
-    () => new THREE.Plane(new THREE.Vector3(0, 0, 1), 0),
+    () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     [],
   );
 
@@ -62,13 +62,12 @@ export default function TacticalView() {
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
-    camera.position.set(0, 0, 160);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 600);
+    camera.position.set(0, 90, 140);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
     const grid = new THREE.GridHelper(PLANE_SIZE, 20, "#2a3b64", "#1d2a4c");
-    grid.rotation.x = Math.PI / 2;
     scene.add(grid);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.8);
@@ -89,8 +88,8 @@ export default function TacticalView() {
       const mesh = new THREE.Mesh(baseGeometry, material);
       mesh.position.set(
         (Math.random() - 0.5) * (PLANE_SIZE * 0.6),
-        (Math.random() - 0.5) * (PLANE_SIZE * 0.6),
         0,
+        (Math.random() - 0.5) * (PLANE_SIZE * 0.6),
       );
       scene.add(mesh);
       return {
@@ -108,11 +107,7 @@ export default function TacticalView() {
       const { width, height } = container.getBoundingClientRect();
       rendererRef.current.setSize(width, height);
       const aspect = width / height;
-      const viewSize = 110;
-      cameraRef.current.left = (-viewSize * aspect) / 2;
-      cameraRef.current.right = (viewSize * aspect) / 2;
-      cameraRef.current.top = viewSize / 2;
-      cameraRef.current.bottom = -viewSize / 2;
+      cameraRef.current.aspect = aspect;
       cameraRef.current.updateProjectionMatrix();
     };
 
@@ -238,8 +233,8 @@ export default function TacticalView() {
         }
         const offset = new THREE.Vector3(
           (index % 3) * 4,
-          Math.floor(index / 3) * 4,
           0,
+          Math.floor(index / 3) * 4,
         );
         unit.target = target.clone().add(offset);
       });
