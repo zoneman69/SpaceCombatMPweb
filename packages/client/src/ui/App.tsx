@@ -63,6 +63,9 @@ export default function App() {
       }
 
       room.onStateChange((state: SpaceState) => {
+        if (!(state instanceof SpaceState)) {
+          return;
+        }
         const lobbyRooms = Array.from(state.lobbyRooms.values()).map(
           (roomItem) => ({
             id: roomItem.id,
