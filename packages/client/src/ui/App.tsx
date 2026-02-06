@@ -25,6 +25,7 @@ export default function App() {
   const [rooms, setRooms] = useState<LobbyRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [localSessionId, setLocalSessionId] = useState<string | null>(null);
+  const [hasConnected, setHasConnected] = useState(false);
   const roomRef = useRef<any>(null);
   const activeRoomIdRef = useRef<string | null>(null);
 
@@ -32,64 +33,74 @@ export default function App() {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
 
-  useEffect(() => {
-    const connect = async () => {
-      try {
-        setIsBusy(true);
-        setStatus(`connecting to ${WS_URL}...`);
-        await roomRef.current?.leave?.();
-        const room = await colyseus.joinOrCreate("space");
-        roomRef.current = room;
-        setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
-        setLocalSessionId(room.sessionId ?? null);
-        if (room.sessionId) {
-          room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
-        }
+  useEffect(() => () => roomRef.current?.leave?.(), []);
 
-        room.onStateChange((state: any) => {
-          const lobbyRooms = Array.from(state.lobbyRooms?.values?.() ?? []).map(
-            (roomItem: any) => ({
-              id: roomItem.id,
-              name: roomItem.name,
-              mode: roomItem.mode,
-              host: roomItem.hostName,
-              players: Array.from(roomItem.players?.values?.() ?? []).map(
-                (player: any) => ({
-                  id: player.id,
-                  name: player.name,
-                  ready: player.ready,
-                }),
-              ),
-            }),
-          );
-          setRooms(lobbyRooms);
-          if (!room.sessionId) {
-            return;
-          }
-          const currentRoom = lobbyRooms.find((lobby) =>
-            lobby.players.some((player) => player.id === room.sessionId),
-          );
-          if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
-            setActiveRoomId(currentRoom.id);
-          }
-          if (
-            !currentRoom &&
-            activeRoomIdRef.current &&
-            lobbyRooms.every((r) => r.id !== activeRoomIdRef.current)
-          ) {
-            setActiveRoomId(null);
-          }
-        });
-      } catch (e: any) {
-        setStatus(`connect failed ❌ ${e?.message || e}`);
-        console.error(e);
-      } finally {
-        setIsBusy(false);
+  const connect = async () => {
+    if (roomRef.current) {
+      return roomRef.current;
+    }
+    try {
+      setIsBusy(true);
+      setStatus(`connecting to ${WS_URL}...`);
+      const room = await colyseus.joinOrCreate("space");
+      roomRef.current = room;
+      setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
+      setLocalSessionId(room.sessionId ?? null);
+      setHasConnected(true);
+      if (room.sessionId) {
+        room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
-    };
-    void connect();
-    return () => roomRef.current?.leave?.();
-  }, []);
+
+      room.onStateChange((state: any) => {
+        const lobbyRooms = Array.from(state.lobbyRooms?.values?.() ?? []).map(
+          (roomItem: any) => ({
+            id: roomItem.id,
+            name: roomItem.name,
+            mode: roomItem.mode,
+            host: roomItem.hostName,
+            players: Array.from(roomItem.players?.values?.() ?? []).map(
+              (player: any) => ({
+                id: player.id,
+                name: player.name,
+                ready: player.ready,
+              }),
+            ),
+          }),
+        );
+        setRooms(lobbyRooms);
+        if (!room.sessionId) {
+          return;
+        }
+        const currentRoom = lobbyRooms.find((lobby) =>
+          lobby.players.some((player) => player.id === room.sessionId),
+        );
+        if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
+          setActiveRoomId(currentRoom.id);
+        }
+        if (
+          !currentRoom &&
+          activeRoomIdRef.current &&
+          lobbyRooms.every((r) => r.id !== activeRoomIdRef.current)
+        ) {
+          setActiveRoomId(null);
+        }
+      });
+      return room;
+    } catch (e: any) {
+      setStatus(`connect failed ❌ ${e?.message || e}`);
+      console.error(e);
+      return null;
+    } finally {
+      setIsBusy(false);
+    }
+  };
+
+  const ensureConnected = async () => {
+    if (roomRef.current) {
+      return roomRef.current;
+    }
+    return connect();
+  };
 
   const activeRoom = useMemo(
     () => rooms.find((room) => room.id === activeRoomId) ?? null,
@@ -124,15 +135,17 @@ export default function App() {
     return () => window.clearInterval(interval);
   }, [everyoneReady, view]);
 
-  const createRoom = () => {
-    roomRef.current?.send("lobby:createRoom", {
+  const createRoom = async () => {
+    const room = await ensureConnected();
+    room?.send("lobby:createRoom", {
       name: "Frontier Skirmish",
       mode: "Squad Skirmish",
     });
   };
 
-  const joinRoom = (roomId: string) => {
-    roomRef.current?.send("lobby:joinRoom", { roomId });
+  const joinRoom = async (roomId: string) => {
+    const room = await ensureConnected();
+    room?.send("lobby:joinRoom", { roomId });
   };
 
   const toggleReady = () => {
@@ -216,6 +229,16 @@ export default function App() {
             >
               Create new room window
             </button>
+            {!hasConnected && (
+              <button
+                className="btn"
+                type="button"
+                onClick={connect}
+                disabled={isBusy}
+              >
+                Connect to lobby
+              </button>
+            )}
           </div>
 
           {rooms.length === 0 ? (
