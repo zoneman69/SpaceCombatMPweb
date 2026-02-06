@@ -6,6 +6,9 @@
     "rootDir": "src",
     "target": "ES2022",
     "strict": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "useDefineForClassFields": false,
     "esModuleInterop": true,
     "skipLibCheck": true
   },
