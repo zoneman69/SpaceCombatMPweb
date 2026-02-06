@@ -7,7 +7,7 @@ import {
   LobbyRoomSchema,
   SpaceState,
   UnitSchema,
-} from "../state/SpaceState.js";
+} from "@space-combat/shared";
 import { simulate } from "../sim/simulate.js";
 
 const DEFAULT_STATS: ShipStats = {
