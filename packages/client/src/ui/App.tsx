@@ -1,6 +1,7 @@
 import "../styles/app.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
+import colyseusPkg from "colyseus.js/package.json";
 import TacticalView from "./TacticalView";
 
 type Player = {
@@ -42,6 +43,10 @@ export default function App() {
     try {
       setIsBusy(true);
       setStatus(`connecting to ${WS_URL}...`);
+      console.log("[lobby] connecting", {
+        ws: WS_URL,
+        colyseus: colyseusPkg.version,
+      });
       const room = await colyseus.joinOrCreate("space");
       roomRef.current = room;
       setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);

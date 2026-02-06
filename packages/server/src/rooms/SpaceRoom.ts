@@ -1,4 +1,5 @@
 import Colyseus from "colyseus";
+import { createRequire } from "module";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
 import {
@@ -21,6 +22,9 @@ const DEFAULT_STATS: ShipStats = {
 };
 
 const TICK_RATE = 20;
+const require = createRequire(import.meta.url);
+const colyseusPkg = require("colyseus/package.json");
+const schemaPkg = require("@colyseus/schema/package.json");
 
 export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
@@ -30,7 +34,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   onCreate() {
     this.setState(new SpaceState());
     this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
-    console.log("[lobby] space room created");
+    console.log("[lobby] space room created", {
+      colyseus: colyseusPkg.version,
+      schema: schemaPkg.version,
+    });
 
     this.onMessage("command", (client, message: Command) => {
       this.handleCommand(client, message);
