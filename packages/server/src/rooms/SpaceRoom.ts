@@ -1,7 +1,13 @@
+import { createRequire } from "module";
 import Colyseus from "colyseus";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
-import { SpaceState, UnitSchema } from "../state/SpaceState.js";
+import {
+  LobbyPlayerSchema,
+  LobbyRoomSchema,
+  SpaceState,
+  UnitSchema,
+} from "../state/SpaceState.js";
 import { simulate } from "../sim/simulate.js";
 
 const DEFAULT_STATS: ShipStats = {
@@ -16,20 +22,105 @@ const DEFAULT_STATS: ShipStats = {
 };
 
 const TICK_RATE = 20;
+const require = createRequire(import.meta.url);
+const colyseusPkg = require("colyseus/package.json");
 
 export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
+  private readonly playerNames = new Map<string, string>();
+  private readonly playerRoomIds = new Map<string, string>();
 
   onCreate() {
     this.setState(new SpaceState());
     this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
+    console.log("[lobby] space room created", {
+      colyseus: colyseusPkg.version,
+    });
 
     this.onMessage("command", (client, message: Command) => {
       this.handleCommand(client, message);
     });
+
+    this.onMessage("lobby:setName", (client, name: string) => {
+      console.log("[lobby] setName", {
+        sessionId: client.sessionId,
+        name,
+      });
+      if (typeof name !== "string" || name.trim().length === 0) {
+        return;
+      }
+      this.playerNames.set(client.sessionId, name.trim());
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      if (roomId) {
+        const room = this.state.lobbyRooms.get(roomId);
+        const player = room?.players.get(client.sessionId);
+        if (player) {
+          player.name = name.trim();
+        }
+        if (room && room.hostId === client.sessionId) {
+          room.hostName = name.trim();
+        }
+      }
+    });
+
+    this.onMessage(
+      "lobby:createRoom",
+      (client, payload: { name?: string; mode?: string }) => {
+        console.log("[lobby] createRoom", {
+          sessionId: client.sessionId,
+          payload,
+        });
+        this.removePlayerFromLobbyRoom(client.sessionId);
+        const room = new LobbyRoomSchema();
+        room.id = nanoid();
+        room.name = payload?.name?.trim() || "Frontier Skirmish";
+        room.mode = payload?.mode?.trim() || "Squad Skirmish";
+        room.hostId = client.sessionId;
+        room.hostName = this.getPlayerName(client.sessionId);
+        this.state.lobbyRooms.set(room.id, room);
+        this.addPlayerToLobbyRoom(room, client.sessionId);
+      },
+    );
+
+    this.onMessage(
+      "lobby:joinRoom",
+      (client, payload: { roomId?: string }) => {
+        console.log("[lobby] joinRoom", {
+          sessionId: client.sessionId,
+          payload,
+        });
+        const roomId = payload?.roomId;
+        if (!roomId) {
+          return;
+        }
+        const room = this.state.lobbyRooms.get(roomId);
+        if (!room) {
+          return;
+        }
+        this.removePlayerFromLobbyRoom(client.sessionId);
+        this.addPlayerToLobbyRoom(room, client.sessionId);
+      },
+    );
+
+    this.onMessage("lobby:toggleReady", (client) => {
+      console.log("[lobby] toggleReady", { sessionId: client.sessionId });
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      if (!roomId) {
+        return;
+      }
+      const room = this.state.lobbyRooms.get(roomId);
+      const player = room?.players.get(client.sessionId);
+      if (player) {
+        player.ready = !player.ready;
+      }
+    });
   }
 
   onJoin(client: Colyseus.Client) {
+    console.log("[lobby] client joined space", {
+      sessionId: client.sessionId,
+    });
+    this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     const spawnOffset = this.clients.length * 6;
     for (let i = 0; i < 5; i += 1) {
       const unit = new UnitSchema();
@@ -42,6 +133,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   onLeave(client: Colyseus.Client) {
+    console.log("[lobby] client left space", {
+      sessionId: client.sessionId,
+    });
+    this.removePlayerFromLobbyRoom(client.sessionId);
+    this.playerNames.delete(client.sessionId);
     for (const [id, unit] of this.state.units.entries()) {
       if (unit.owner === client.sessionId) {
         this.state.units.delete(id);
@@ -107,5 +203,43 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     });
     return result;
+  }
+
+  private addPlayerToLobbyRoom(room: LobbyRoomSchema, sessionId: string) {
+    const player = new LobbyPlayerSchema();
+    player.id = sessionId;
+    player.name = this.getPlayerName(sessionId);
+    player.ready = false;
+    room.players.set(sessionId, player);
+    this.playerRoomIds.set(sessionId, room.id);
+  }
+
+  private removePlayerFromLobbyRoom(sessionId: string) {
+    const roomId = this.playerRoomIds.get(sessionId);
+    if (!roomId) {
+      return;
+    }
+    const room = this.state.lobbyRooms.get(roomId);
+    if (!room) {
+      this.playerRoomIds.delete(sessionId);
+      return;
+    }
+    room.players.delete(sessionId);
+    this.playerRoomIds.delete(sessionId);
+    if (room.players.size === 0) {
+      this.state.lobbyRooms.delete(roomId);
+      return;
+    }
+    if (room.hostId === sessionId) {
+      const nextHost = Array.from(room.players.values())[0];
+      if (nextHost) {
+        room.hostId = nextHost.id;
+        room.hostName = nextHost.name;
+      }
+    }
+  }
+
+  private getPlayerName(sessionId: string) {
+    return this.playerNames.get(sessionId) ?? `Pilot-${sessionId.slice(0, 4)}`;
   }
 }
