@@ -1,6 +1,7 @@
 import "../styles/app.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
+import TacticalView from "./TacticalView";
 
 export default function App() {
   const [status, setStatus] = useState("idle");
@@ -128,12 +129,17 @@ export default function App() {
           </ul>
         </section>
 
+        <section className="panel lobby-card lobby-map">
+          <h2>Live tactical map</h2>
+          <TacticalView />
+        </section>
+
         <section className="panel lobby-card">
           <h2>Next Steps</h2>
           <ol className="brief-list">
             <li>Connect Colyseus client ✅ (once status shows connected)</li>
-            <li>Render units with Three.js</li>
-            <li>Drag select + right-click orders</li>
+            <li>Render units with Three.js ✅</li>
+            <li>Drag select + right-click orders ✅</li>
           </ol>
         </section>
       </main>
