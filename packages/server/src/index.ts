@@ -1,6 +1,6 @@
 import http from "http";
 import express from "express";
-import { Server } from "colyseus";
+import Colyseus from "colyseus";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { SpaceRoom } from "./rooms/SpaceRoom.js";
 
@@ -12,6 +12,7 @@ app.get("/", (_req, res) => {
 });
 
 const server = http.createServer(app);
+const { Server } = Colyseus;
 const gameServer = new Server({
   transport: new WebSocketTransport({ server }),
 });
