@@ -1,13 +1,10 @@
 import { Client } from "colyseus.js";
 
-const isProd = import.meta.env.PROD;
+const isHttps = location.protocol === "https:";
 
-// Prod: same origin websocket via nginx (/spacews)
-// Dev: direct to :2567 on the same host
-const autoWs = isProd
-  ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/spacews`
-  : `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:2567`;
+// Use nginx proxy path on the same domain (works for HTTPS + no extra ports)
+const sameOriginWs = `${isHttps ? "wss" : "ws"}://${location.host}/spacews`;
 
-export const WS_URL = import.meta.env.VITE_WS_URL || autoWs;
+export const WS_URL = import.meta.env.VITE_WS_URL || sameOriginWs;
 
 export const colyseus = new Client(WS_URL);
