@@ -3,6 +3,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
 import colyseusPkg from "colyseus.js/package.json";
 import { SpaceState } from "@space-combat/shared";
+import type {
+  LobbyPlayerSchema,
+  LobbyRoomSchema,
+} from "@space-combat/shared";
 import TacticalView from "./TacticalView";
 
 void SpaceState;
@@ -66,13 +70,17 @@ export default function App() {
         if (!(state instanceof SpaceState)) {
           return;
         }
-        const lobbyRooms = Array.from(state.lobbyRooms.values()).map(
+        const lobbyRooms = (
+          Array.from(state.lobbyRooms.values()) as LobbyRoomSchema[]
+        ).map(
           (roomItem) => ({
             id: roomItem.id,
             name: roomItem.name,
             mode: roomItem.mode,
             host: roomItem.hostName,
-            players: Array.from(roomItem.players.values()).map((player) => ({
+            players: (
+              Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
+            ).map((player) => ({
               id: player.id,
               name: player.name,
               ready: player.ready,
