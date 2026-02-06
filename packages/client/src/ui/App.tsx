@@ -1,59 +1,176 @@
 import "../styles/app.css";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
 import TacticalView from "./TacticalView";
+
+type Player = {
+  id: string;
+  name: string;
+  ready: boolean;
+};
+
+type LobbyRoom = {
+  id: string;
+  name: string;
+  mode: string;
+  host: string;
+  players: Player[];
+};
+
+const LOCAL_PLAYER_ID = "pilot-1";
 
 export default function App() {
   const [status, setStatus] = useState("idle");
   const [isBusy, setIsBusy] = useState(false);
+  const [view, setView] = useState<"lobby" | "game">("lobby");
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [rooms, setRooms] = useState<LobbyRoom[]>([]);
+  const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const roomRef = useRef<any>(null);
 
-  const connect = useCallback(
-    async (mode: "join" | "create") => {
+  useEffect(() => {
+    const connect = async () => {
       try {
         setIsBusy(true);
-        setStatus(
-          mode === "create"
-            ? "creating squad room..."
-            : `connecting to ${WS_URL}...`,
-        );
+        setStatus(`connecting to ${WS_URL}...`);
         await roomRef.current?.leave?.();
-        const room =
-          mode === "create"
-            ? await colyseus.create("space")
-            : await colyseus.joinOrCreate("space");
+        const room = await colyseus.joinOrCreate("space");
         roomRef.current = room;
         setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
-
-        // TEMP: log state changes
-        room.onStateChange((state: any) => {
-          console.log("state", state);
-        });
       } catch (e: any) {
         setStatus(`connect failed ❌ ${e?.message || e}`);
         console.error(e);
       } finally {
         setIsBusy(false);
       }
-    },
-    [setStatus],
+    };
+    void connect();
+    return () => roomRef.current?.leave?.();
+  }, []);
+
+  const activeRoom = useMemo(
+    () => rooms.find((room) => room.id === activeRoomId) ?? null,
+    [rooms, activeRoomId],
   );
 
+  const readyCount = activeRoom
+    ? activeRoom.players.filter((player) => player.ready).length
+    : 0;
+  const everyoneReady =
+    !!activeRoom && readyCount === activeRoom.players.length;
+
   useEffect(() => {
-    void connect("join");
-    return () => roomRef.current?.leave?.();
-  }, [connect]);
+    if (!everyoneReady || view !== "lobby") {
+      setCountdown(null);
+      return;
+    }
+    setCountdown(10);
+    const interval = window.setInterval(() => {
+      setCountdown((prev) => {
+        if (prev === null) {
+          return prev;
+        }
+        if (prev <= 1) {
+          window.clearInterval(interval);
+          setView("game");
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [everyoneReady, view]);
+
+  const createRoom = () => {
+    const newRoom: LobbyRoom = {
+      id: `room-${Date.now()}`,
+      name: "Frontier Skirmish",
+      mode: "Squad Skirmish",
+      host: "Commander Nova",
+      players: [
+        { id: LOCAL_PLAYER_ID, name: "You", ready: false },
+        { id: "pilot-2", name: "Lyra", ready: false },
+      ],
+    };
+    setRooms((prev) => [newRoom, ...prev]);
+    setActiveRoomId(newRoom.id);
+  };
+
+  const joinRoom = (roomId: string) => {
+    setRooms((prev) =>
+      prev.map((room) =>
+        room.id === roomId
+          ? {
+              ...room,
+              players: room.players.some((player) => player.id === LOCAL_PLAYER_ID)
+                ? room.players
+                : [
+                    ...room.players,
+                    { id: LOCAL_PLAYER_ID, name: "You", ready: false },
+                  ],
+            }
+          : room,
+      ),
+    );
+    setActiveRoomId(roomId);
+  };
+
+  const toggleReady = () => {
+    if (!activeRoom) {
+      return;
+    }
+    setRooms((prev) =>
+      prev.map((room) =>
+        room.id === activeRoom.id
+          ? {
+              ...room,
+              players: room.players.map((player) =>
+                player.id === LOCAL_PLAYER_ID
+                  ? { ...player, ready: !player.ready }
+                  : player,
+              ),
+            }
+          : room,
+      ),
+    );
+  };
+
+  if (view === "game") {
+    return (
+      <div className="game-shell">
+        <header className="game-header">
+          <div>
+            <p className="eyebrow">Mission briefing</p>
+            <h1>Engage in the outer rim.</h1>
+            <p className="subhead">
+              Full tactical view deployed. Your squad has entered the conflict
+              zone.
+            </p>
+          </div>
+          <button
+            className="btn"
+            type="button"
+            onClick={() => setView("lobby")}
+          >
+            Return to lobby
+          </button>
+        </header>
+        <section className="game-stage">
+          <TacticalView />
+        </section>
+      </div>
+    );
+  }
 
   return (
-    <div className="app">
+    <div className="app lobby-page">
       <header className="lobby-header">
         <div>
           <p className="eyebrow">Space Combat MP</p>
-          <h1>Command the frontier.</h1>
+          <h1>Fleet operations hub.</h1>
           <p className="subhead">
-            Multiplayer RTS prototype for squad-level orders and authoritative
-            simulation. Rally your fleet, secure a sector, and coordinate the
-            next deployment.
+            Coordinate rooms, ready your squad, and launch into the battle when
+            every pilot is locked in.
           </p>
         </div>
 
@@ -69,78 +186,125 @@ export default function App() {
             </span>
           </div>
           <p className="status-meta">
-            Room: <code>space</code> · Tick rate: 20 Hz · Ships per player: 5
+            Room service: <code>space</code> · Tick rate: 20 Hz · Fleet limit: 8
           </p>
         </div>
       </header>
 
-      <main className="lobby-grid">
-        <section className="panel lobby-card">
-          <h2>Lobby</h2>
-          <div className="lobby-room">
+      <main className="lobby-grid lobby-columns">
+        <section className="panel lobby-card lobby-rooms">
+          <div className="lobby-card-header">
             <div>
-              <p className="room-name">space</p>
-              <p className="room-desc">
-                Primary skirmish room. Matchmaking opens as soon as two captains
-                connect.
+              <h2>Active rooms</h2>
+              <p className="section-caption">
+                Hosts can open a room window; incoming pilots can join any open
+                briefings.
               </p>
             </div>
-            <div className="room-stats">
-              <div>
-                <span>Players</span>
-                <strong>1 / 8</strong>
-              </div>
-              <div>
-                <span>Region</span>
-                <strong>Auto</strong>
-              </div>
-              <div>
-                <span>Mode</span>
-                <strong>Skirmish</strong>
-              </div>
-            </div>
-          </div>
-          <div className="lobby-actions">
             <button
               className="btn primary"
               type="button"
-              onClick={() => connect("join")}
+              onClick={createRoom}
               disabled={isBusy}
             >
-              Join briefing
-            </button>
-            <button
-              className="btn"
-              type="button"
-              onClick={() => connect("create")}
-              disabled={isBusy}
-            >
-              Create squad room
+              Create new room window
             </button>
           </div>
+
+          {rooms.length === 0 ? (
+            <div className="empty-state">
+              <p>No rooms yet. Spin up a new command window to begin.</p>
+            </div>
+          ) : (
+            <div className="room-grid">
+              {rooms.map((room) => (
+                <article
+                  key={room.id}
+                  className={`room-card ${
+                    room.id === activeRoomId ? "active" : ""
+                  }`}
+                >
+                  <div>
+                    <p className="room-name">{room.name}</p>
+                    <p className="room-desc">
+                      {room.mode} · Host: {room.host}
+                    </p>
+                  </div>
+                  <div className="room-meta">
+                    <span>Players</span>
+                    <strong>
+                      {room.players.length} / 8
+                    </strong>
+                  </div>
+                  <div className="room-actions">
+                    <button
+                      className="btn"
+                      type="button"
+                      onClick={() => joinRoom(room.id)}
+                    >
+                      Join window
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </section>
 
-        <section className="panel lobby-card">
-          <h2>Command briefing</h2>
-          <ul className="brief-list">
-            <li>Awaiting fleet roster confirmation.</li>
-            <li>Calibrate weapon arcs and sensor arrays.</li>
-            <li>Sync with squad leaders before deployment.</li>
-          </ul>
-        </section>
-
-        <section className="panel lobby-card lobby-map">
-          <h2>Live tactical map</h2>
-          <TacticalView />
-        </section>
-
-        <section className="panel lobby-card">
-          <h2>Next Steps</h2>
-          <ol className="brief-list">
-            <li>Connect Colyseus client ✅ (once status shows connected)</li>
-            <li>Render units with Three.js ✅</li>
-            <li>Drag select + right-click orders ✅</li>
-          </ol>
+        <section className="panel lobby-card lobby-roster">
+          <h2>Room roster</h2>
+          {activeRoom ? (
+            <>
+              <div className="roster-header">
+                <div>
+                  <p className="room-name">{activeRoom.name}</p>
+                  <p className="room-desc">
+                    {activeRoom.mode} · Host: {activeRoom.host}
+                  </p>
+                </div>
+                <div className="ready-status">
+                  <span>Ready</span>
+                  <strong>
+                    {readyCount}/{activeRoom.players.length}
+                  </strong>
+                </div>
+              </div>
+              <ul className="roster-list">
+                {activeRoom.players.map((player) => (
+                  <li key={player.id} className="roster-item">
+                    <div>
+                      <p>{player.name}</p>
+                      <span>{player.ready ? "Ready" : "Standing by"}</span>
+                    </div>
+                    <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
+                      {player.ready ? "Ready" : "Idle"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="ready-actions">
+                <button
+                  className="btn primary"
+                  type="button"
+                  onClick={toggleReady}
+                  disabled={!activeRoom.players.some((player) => player.id === LOCAL_PLAYER_ID)}
+                >
+                  {activeRoom.players.find((player) => player.id === LOCAL_PLAYER_ID)?.ready
+                    ? "Cancel ready"
+                    : "Ready up"}
+                </button>
+                {everyoneReady && countdown !== null && (
+                  <p className="countdown">
+                    All pilots ready. Launching in {countdown}s.
+                  </p>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="empty-state">
+              <p>Select a room window to see the roster and ready up.</p>
+            </div>
+          )}
         </section>
       </main>
     </div>
