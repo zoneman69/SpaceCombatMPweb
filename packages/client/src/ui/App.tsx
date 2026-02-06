@@ -59,7 +59,7 @@ export default function App() {
       });
       const room = await colyseus.joinOrCreate<SpaceState>("space");
       roomRef.current = room;
-      setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
+      setStatus(`connected ✅ roomId=${room.roomId ?? "unknown"}`);
       setLocalSessionId(room.sessionId ?? null);
       setHasConnected(true);
       if (room.sessionId) {
