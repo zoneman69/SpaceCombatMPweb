@@ -17,8 +17,6 @@ type LobbyRoom = {
   players: Player[];
 };
 
-const LOCAL_PLAYER_ID = "pilot-1";
-
 export default function App() {
   const [status, setStatus] = useState("idle");
   const [isBusy, setIsBusy] = useState(false);
@@ -26,7 +24,13 @@ export default function App() {
   const [countdown, setCountdown] = useState<number | null>(null);
   const [rooms, setRooms] = useState<LobbyRoom[]>([]);
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
+  const [localSessionId, setLocalSessionId] = useState<string | null>(null);
   const roomRef = useRef<any>(null);
+  const activeRoomIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    activeRoomIdRef.current = activeRoomId;
+  }, [activeRoomId]);
 
   useEffect(() => {
     const connect = async () => {
@@ -37,6 +41,45 @@ export default function App() {
         const room = await colyseus.joinOrCreate("space");
         roomRef.current = room;
         setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
+        setLocalSessionId(room.sessionId ?? null);
+        if (room.sessionId) {
+          room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
+        }
+
+        room.onStateChange((state: any) => {
+          const lobbyRooms = Array.from(state.lobbyRooms?.values?.() ?? []).map(
+            (roomItem: any) => ({
+              id: roomItem.id,
+              name: roomItem.name,
+              mode: roomItem.mode,
+              host: roomItem.hostName,
+              players: Array.from(roomItem.players?.values?.() ?? []).map(
+                (player: any) => ({
+                  id: player.id,
+                  name: player.name,
+                  ready: player.ready,
+                }),
+              ),
+            }),
+          );
+          setRooms(lobbyRooms);
+          if (!room.sessionId) {
+            return;
+          }
+          const currentRoom = lobbyRooms.find((lobby) =>
+            lobby.players.some((player) => player.id === room.sessionId),
+          );
+          if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
+            setActiveRoomId(currentRoom.id);
+          }
+          if (
+            !currentRoom &&
+            activeRoomIdRef.current &&
+            lobbyRooms.every((r) => r.id !== activeRoomIdRef.current)
+          ) {
+            setActiveRoomId(null);
+          }
+        });
       } catch (e: any) {
         setStatus(`connect failed ❌ ${e?.message || e}`);
         console.error(e);
@@ -82,54 +125,21 @@ export default function App() {
   }, [everyoneReady, view]);
 
   const createRoom = () => {
-    const newRoom: LobbyRoom = {
-      id: `room-${Date.now()}`,
+    roomRef.current?.send("lobby:createRoom", {
       name: "Frontier Skirmish",
       mode: "Squad Skirmish",
-      host: "Commander Nova",
-      players: [{ id: LOCAL_PLAYER_ID, name: "You", ready: false }],
-    };
-    setRooms((prev) => [newRoom, ...prev]);
-    setActiveRoomId(newRoom.id);
+    });
   };
 
   const joinRoom = (roomId: string) => {
-    setRooms((prev) =>
-      prev.map((room) =>
-        room.id === roomId
-          ? {
-              ...room,
-              players: room.players.some((player) => player.id === LOCAL_PLAYER_ID)
-                ? room.players
-                : [
-                    ...room.players,
-                    { id: LOCAL_PLAYER_ID, name: "You", ready: false },
-                  ],
-            }
-          : room,
-      ),
-    );
-    setActiveRoomId(roomId);
+    roomRef.current?.send("lobby:joinRoom", { roomId });
   };
 
   const toggleReady = () => {
     if (!activeRoom) {
       return;
     }
-    setRooms((prev) =>
-      prev.map((room) =>
-        room.id === activeRoom.id
-          ? {
-              ...room,
-              players: room.players.map((player) =>
-                player.id === LOCAL_PLAYER_ID
-                  ? { ...player, ready: !player.ready }
-                  : player,
-              ),
-            }
-          : room,
-      ),
-    );
+    roomRef.current?.send("lobby:toggleReady");
   };
 
   if (view === "game") {
@@ -270,7 +280,9 @@ export default function App() {
                 {activeRoom.players.map((player) => (
                   <li key={player.id} className="roster-item">
                     <div>
-                      <p>{player.name}</p>
+                      <p>
+                        {player.id === localSessionId ? "You" : player.name}
+                      </p>
                       <span>{player.ready ? "Ready" : "Standing by"}</span>
                     </div>
                     <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
@@ -284,9 +296,9 @@ export default function App() {
                   className="btn primary"
                   type="button"
                   onClick={toggleReady}
-                  disabled={!activeRoom.players.some((player) => player.id === LOCAL_PLAYER_ID)}
+                  disabled={!activeRoom.players.some((player) => player.id === localSessionId)}
                 >
-                  {activeRoom.players.find((player) => player.id === LOCAL_PLAYER_ID)?.ready
+                  {activeRoom.players.find((player) => player.id === localSessionId)?.ready
                     ? "Cancel ready"
                     : "Ready up"}
                 </button>
