@@ -1,6 +1,6 @@
 import "../styles/app.css";
 import { useEffect, useState } from "react";
-import { colyseus, WS_URL } from "./net";
+import { colyseus, WS_URL } from "../net";
 
 export default function App() {
   const [status, setStatus] = useState("idle");
