@@ -44,6 +44,21 @@ importers:
 
   packages/server:
     dependencies:
+      '@types/express':
+        specifier: ^4.17.21
+        version: 4.17.25
+      '@colyseus/auth':
+        specifier: ^0.16.0
+        version: 0.16.6(@colyseus/core@0.16.24(@colyseus/schema@3.0.76)(@pm2/io@6.1.0))(express@4.22.1)
+      '@colyseus/core':
+        specifier: ^0.16.0
+        version: 0.16.24(@colyseus/schema@3.0.76)(@pm2/io@6.1.0)
+      '@colyseus/redis-driver':
+        specifier: ^0.16.0
+        version: 0.16.1(@colyseus/schema@3.0.76)(@pm2/io@6.1.0)
+      '@colyseus/redis-presence':
+        specifier: ^0.16.0
+        version: 0.16.4(@colyseus/schema@3.0.76)(@pm2/io@6.1.0)
       '@colyseus/schema':
         specifier: ^2.0.4
         version: 2.0.37
