@@ -30,12 +30,17 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   onCreate() {
     this.setState(new SpaceState());
     this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
+    console.log("[lobby] space room created");
 
     this.onMessage("command", (client, message: Command) => {
       this.handleCommand(client, message);
     });
 
     this.onMessage("lobby:setName", (client, name: string) => {
+      console.log("[lobby] setName", {
+        sessionId: client.sessionId,
+        name,
+      });
       if (typeof name !== "string" || name.trim().length === 0) {
         return;
       }
@@ -56,6 +61,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.onMessage(
       "lobby:createRoom",
       (client, payload: { name?: string; mode?: string }) => {
+        console.log("[lobby] createRoom", {
+          sessionId: client.sessionId,
+          payload,
+        });
         this.removePlayerFromLobbyRoom(client.sessionId);
         const room = new LobbyRoomSchema();
         room.id = nanoid();
@@ -71,6 +80,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.onMessage(
       "lobby:joinRoom",
       (client, payload: { roomId?: string }) => {
+        console.log("[lobby] joinRoom", {
+          sessionId: client.sessionId,
+          payload,
+        });
         const roomId = payload?.roomId;
         if (!roomId) {
           return;
@@ -85,6 +98,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     );
 
     this.onMessage("lobby:toggleReady", (client) => {
+      console.log("[lobby] toggleReady", { sessionId: client.sessionId });
       const roomId = this.playerRoomIds.get(client.sessionId);
       if (!roomId) {
         return;
@@ -98,6 +112,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   onJoin(client: Colyseus.Client) {
+    console.log("[lobby] client joined space", {
+      sessionId: client.sessionId,
+    });
     this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     const spawnOffset = this.clients.length * 6;
     for (let i = 0; i < 5; i += 1) {
@@ -111,6 +128,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   onLeave(client: Colyseus.Client) {
+    console.log("[lobby] client left space", {
+      sessionId: client.sessionId,
+    });
     this.removePlayerFromLobbyRoom(client.sessionId);
     this.playerNames.delete(client.sessionId);
     for (const [id, unit] of this.state.units.entries()) {
