@@ -111,6 +111,10 @@ h1 {
   gap: 16px;
 }
 
+.lobby-map {
+  grid-column: span 2;
+}
+
 .lobby-room {
   display: flex;
   flex-direction: column;
@@ -180,8 +184,72 @@ h1 {
   line-height: 1.6;
 }
 
+.tactical-view {
+  display: grid;
+  gap: 16px;
+}
+
+.tactical-canvas {
+  position: relative;
+  width: 100%;
+  min-height: 320px;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid #1f2a46;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+}
+
+.selection-box {
+  position: absolute;
+  border: 1px solid rgba(250, 204, 21, 0.8);
+  background: rgba(250, 204, 21, 0.15);
+  pointer-events: none;
+}
+
+.tactical-hud {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(13, 20, 36, 0.7);
+  border: 1px solid rgba(43, 57, 92, 0.7);
+}
+
+.hud-title {
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.hud-copy {
+  margin: 0;
+  color: #a9b9d6;
+  font-size: 0.9rem;
+}
+
+.hud-status {
+  text-align: right;
+}
+
+.hud-status span {
+  display: block;
+  font-size: 0.75rem;
+  color: #7b90b8;
+}
+
+.hud-status strong {
+  font-size: 1.4rem;
+}
+
 @media (min-width: 960px) {
   .lobby-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 960px) {
+  .lobby-map {
+    grid-column: auto;
   }
 }
