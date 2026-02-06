@@ -4,6 +4,9 @@
   "workspaces": [
     "packages/*"
   ],
+  "dependencies": {
+    "@colyseus/schema": "2.0.37"
+  },
   "pnpm": {
     "overrides": {
       "@colyseus/schema": "2.0.37"
