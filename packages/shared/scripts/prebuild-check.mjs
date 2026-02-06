@@ -32,7 +32,10 @@ console.log("[shared] prebuild diagnostics");
 console.log("[shared] node", process.version);
 console.log("[shared] execPath", process.execPath);
 console.log("[shared] cwd", cwd);
-console.log("[shared] module.paths", module.paths);
+console.log(
+  "[shared] require.resolve.paths",
+  require.resolve.paths("@colyseus/schema"),
+);
 console.log("[shared] root", root);
 console.log("[shared] NODE_PATH", process.env.NODE_PATH ?? "(unset)");
 console.log("[shared] node_modules exists (cwd)", exists(path.join(cwd, "node_modules")));
