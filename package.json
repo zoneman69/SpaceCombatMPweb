@@ -4,6 +4,11 @@
   "workspaces": [
     "packages/*"
   ],
+  "pnpm": {
+    "overrides": {
+      "@colyseus/schema": "2.0.37"
+    }
+  },
   "scripts": {
     "dev:server": "pnpm --filter @space-combat/server dev",
     "dev:client": "pnpm --filter @space-combat/client dev",
