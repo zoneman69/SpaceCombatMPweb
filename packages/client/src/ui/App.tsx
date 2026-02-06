@@ -2,7 +2,10 @@ import "../styles/app.css";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
 import colyseusPkg from "colyseus.js/package.json";
+import { SpaceState } from "@space-combat/shared";
 import TacticalView from "./TacticalView";
+
+void SpaceState;
 
 type Player = {
   id: string;
@@ -34,7 +37,10 @@ export default function App() {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
 
-  useEffect(() => () => roomRef.current?.leave?.(), []);
+  useEffect(() => {
+    void connect();
+    return () => roomRef.current?.leave?.();
+  }, []);
 
   const connect = async () => {
     if (roomRef.current) {
@@ -47,7 +53,7 @@ export default function App() {
         ws: WS_URL,
         colyseus: colyseusPkg.version,
       });
-      const room = await colyseus.joinOrCreate("space");
+      const room = await colyseus.joinOrCreate<SpaceState>("space");
       roomRef.current = room;
       setStatus(`connected ✅ roomId=${room.roomId ?? room.id ?? "unknown"}`);
       setLocalSessionId(room.sessionId ?? null);
@@ -56,20 +62,18 @@ export default function App() {
         room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
 
-      room.onStateChange((state: any) => {
-        const lobbyRooms = Array.from(state.lobbyRooms?.values?.() ?? []).map(
-          (roomItem: any) => ({
+      room.onStateChange((state: SpaceState) => {
+        const lobbyRooms = Array.from(state.lobbyRooms.values()).map(
+          (roomItem) => ({
             id: roomItem.id,
             name: roomItem.name,
             mode: roomItem.mode,
             host: roomItem.hostName,
-            players: Array.from(roomItem.players?.values?.() ?? []).map(
-              (player: any) => ({
-                id: player.id,
-                name: player.name,
-                ready: player.ready,
-              }),
-            ),
+            players: Array.from(roomItem.players.values()).map((player) => ({
+              id: player.id,
+              name: player.name,
+              ready: player.ready,
+            })),
           }),
         );
         setRooms(lobbyRooms);

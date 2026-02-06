@@ -1,6 +1,5 @@
 import type { MapSchema } from "@colyseus/schema";
-import type { ShipStats } from "@space-combat/shared";
-import type { UnitSchema } from "../state/SpaceState.js";
+import type { ShipStats, UnitSchema } from "@space-combat/shared";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
