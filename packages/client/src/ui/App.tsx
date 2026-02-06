@@ -87,10 +87,7 @@ export default function App() {
       name: "Frontier Skirmish",
       mode: "Squad Skirmish",
       host: "Commander Nova",
-      players: [
-        { id: LOCAL_PLAYER_ID, name: "You", ready: false },
-        { id: "pilot-2", name: "Lyra", ready: false },
-      ],
+      players: [{ id: LOCAL_PLAYER_ID, name: "You", ready: false }],
     };
     setRooms((prev) => [newRoom, ...prev]);
     setActiveRoomId(newRoom.id);
