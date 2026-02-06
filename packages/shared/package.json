@@ -4,8 +4,12 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "prebuild": "node -e \"console.log('[shared] cwd', process.cwd()); console.log('[shared] module paths', module.paths); try { console.log('[shared] resolve @colyseus/schema', require.resolve('@colyseus/schema')); } catch (e) { console.error('[shared] resolve @colyseus/schema failed', e.message); }\"",
     "build": "tsc -p tsconfig.json",
     "lint": "eslint src --max-warnings=0"
+  },
+  "dependencies": {
+    "@colyseus/schema": "^2.0.4"
   },
   "devDependencies": {
     "typescript": "^5.5.4"

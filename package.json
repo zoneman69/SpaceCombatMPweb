@@ -4,6 +4,14 @@
   "workspaces": [
     "packages/*"
   ],
+  "pnpm": {
+    "overrides": {
+      "@colyseus/schema": "2.0.37"
+    },
+    "publicHoistPattern": [
+      "@colyseus/schema"
+    ]
+  },
   "scripts": {
     "dev:server": "pnpm --filter @space-combat/server dev",
     "dev:client": "pnpm --filter @space-combat/client dev",
