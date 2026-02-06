@@ -115,6 +115,10 @@ h1 {
   gap: 16px;
 }
 
+.lobby-map {
+  grid-column: span 2;
+}
+
 .lobby-room {
   display: flex;
   flex-direction: column;
