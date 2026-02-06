@@ -1,4 +1,4 @@
-import * as Colyseus from "colyseus";
+import Colyseus from "colyseus";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
 import { SpaceState, UnitSchema } from "../state/SpaceState.js";
@@ -17,7 +17,7 @@ const DEFAULT_STATS: ShipStats = {
 
 const TICK_RATE = 20;
 
-export class SpaceRoom extends Room<SpaceState> {
+export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
 
   onCreate() {
@@ -29,7 +29,7 @@ export class SpaceRoom extends Room<SpaceState> {
     });
   }
 
-  onJoin(client: Client) {
+  onJoin(client: Colyseus.Client) {
     const spawnOffset = this.clients.length * 6;
     for (let i = 0; i < 5; i += 1) {
       const unit = new UnitSchema();
@@ -41,7 +41,7 @@ export class SpaceRoom extends Room<SpaceState> {
     }
   }
 
-  onLeave(client: Client) {
+  onLeave(client: Colyseus.Client) {
     for (const [id, unit] of this.state.units.entries()) {
       if (unit.owner === client.sessionId) {
         this.state.units.delete(id);
@@ -54,7 +54,7 @@ export class SpaceRoom extends Room<SpaceState> {
     simulate({ units: this.state.units, stats: this.stats, dt });
   }
 
-  private handleCommand(client: Client, command: Command) {
+  private handleCommand(client: Colyseus.Client, command: Command) {
     const units = this.getClientUnits(client.sessionId, command.unitIds);
     switch (command.t) {
       case "MOVE":
