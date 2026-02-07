@@ -41,6 +41,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       this.handleCommand(client, message);
     });
 
+    this.onMessage("lobby:ensureUnits", (client) => {
+      this.ensureUnitsForClient(client.sessionId);
+    });
+
     this.onMessage("lobby:setName", (client, name: string) => {
       console.log("[lobby] setName", {
         sessionId: client.sessionId,
@@ -125,15 +129,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     this.emitLobbyRooms(client);
-    const spawnOffset = this.clients.length * 6;
-    for (let i = 0; i < 5; i += 1) {
-      const unit = new UnitSchema();
-      unit.id = nanoid();
-      unit.owner = client.sessionId;
-      unit.x = spawnOffset + i * 2;
-      unit.z = spawnOffset;
-      this.state.units.set(unit.id, unit);
-    }
+    this.ensureUnitsForClient(client.sessionId);
   }
 
   onLeave(client: Colyseus.Client) {
@@ -217,6 +213,24 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     player.ready = false;
     room.players.set(sessionId, player);
     this.playerRoomIds.set(sessionId, room.id);
+  }
+
+  private ensureUnitsForClient(sessionId: string) {
+    const existingUnits = Array.from(this.state.units.values()).filter(
+      (unit) => unit.owner === sessionId,
+    );
+    if (existingUnits.length > 0) {
+      return;
+    }
+    const spawnOffset = this.clients.length * 6;
+    for (let i = 0; i < 5; i += 1) {
+      const unit = new UnitSchema();
+      unit.id = nanoid();
+      unit.owner = sessionId;
+      unit.x = spawnOffset + i * 2;
+      unit.z = spawnOffset;
+      this.state.units.set(unit.id, unit);
+    }
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {

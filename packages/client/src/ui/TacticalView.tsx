@@ -50,6 +50,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   );
 
   useEffect(() => {
+    if (!room) {
+      return;
+    }
+    room.send("lobby:ensureUnits");
+  }, [room]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;
