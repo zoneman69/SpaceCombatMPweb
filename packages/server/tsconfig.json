@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@space-combat/shared": ["../shared/dist/index.d.ts"]
+    },
     "outDir": "dist",
     "rootDir": "src",
     "target": "ES2022",
