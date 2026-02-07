@@ -67,6 +67,7 @@ export class SpaceRoom extends Colyseus.Room {
             room.hostName = this.getPlayerName(client.sessionId);
             this.state.lobbyRooms.set(room.id, room);
             this.addPlayerToLobbyRoom(room, client.sessionId);
+            this.emitLobbyRooms();
         });
         this.onMessage("lobby:joinRoom", (client, payload) => {
             console.log("[lobby] joinRoom", {
@@ -83,6 +84,7 @@ export class SpaceRoom extends Colyseus.Room {
             }
             this.removePlayerFromLobbyRoom(client.sessionId);
             this.addPlayerToLobbyRoom(room, client.sessionId);
+            this.emitLobbyRooms();
         });
         this.onMessage("lobby:toggleReady", (client) => {
             console.log("[lobby] toggleReady", { sessionId: client.sessionId });
@@ -94,6 +96,7 @@ export class SpaceRoom extends Colyseus.Room {
             const player = room?.players.get(client.sessionId);
             if (player) {
                 player.ready = !player.ready;
+                this.emitLobbyRooms();
             }
         });
     }
@@ -102,6 +105,7 @@ export class SpaceRoom extends Colyseus.Room {
             sessionId: client.sessionId,
         });
         this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
+        this.emitLobbyRooms(client);
         const spawnOffset = this.clients.length * 6;
         for (let i = 0; i < 5; i += 1) {
             const unit = new UnitSchema();
@@ -117,6 +121,7 @@ export class SpaceRoom extends Colyseus.Room {
             sessionId: client.sessionId,
         });
         this.removePlayerFromLobbyRoom(client.sessionId);
+        this.emitLobbyRooms();
         this.playerNames.delete(client.sessionId);
         for (const [id, unit] of this.state.units.entries()) {
             if (unit.owner === client.sessionId) {
@@ -215,5 +220,23 @@ export class SpaceRoom extends Colyseus.Room {
     }
     getPlayerName(sessionId) {
         return this.playerNames.get(sessionId) ?? `Pilot-${sessionId.slice(0, 4)}`;
+    }
+    emitLobbyRooms(target) {
+        const payload = Array.from(this.state.lobbyRooms.values()).map((room) => ({
+            id: room.id,
+            name: room.name,
+            mode: room.mode,
+            host: room.hostName,
+            players: Array.from(room.players.values()).map((player) => ({
+                id: player.id,
+                name: player.name,
+                ready: player.ready,
+            })),
+        }));
+        if (target) {
+            target.send("lobby:rooms", payload);
+            return;
+        }
+        this.broadcast("lobby:rooms", payload);
     }
 }
