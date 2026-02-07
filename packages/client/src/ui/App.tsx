@@ -123,36 +123,15 @@ export default function App() {
         bindLobbyRooms(room.state.lobbyRooms);
       }
 
-      room.onMessage("lobby:rooms", (payload: LobbyRoom[]) => {
+      room.onMessage("lobby:rooms", (payload) => {
         if (Array.isArray(payload)) {
-          applyLobbyRooms(payload);
+          applyLobbyRooms(payload as LobbyRoom[]);
         }
       });
 
-      room.onStateChange((state: SpaceState) => {
+      room.onStateChange((state) => {
         if (state?.lobbyRooms) {
-          bindLobbyRooms(state.lobbyRooms);
-        }
-      };
-
-      const bindLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
-        if (lobbyRoomsRef.current === lobbyRooms) {
-          return;
-        }
-        lobbyRoomsRef.current = lobbyRooms;
-        syncLobbyRooms(lobbyRooms);
-        lobbyRooms.onAdd(() => syncLobbyRooms(lobbyRooms));
-        lobbyRooms.onRemove(() => syncLobbyRooms(lobbyRooms));
-        lobbyRooms.onChange(() => syncLobbyRooms(lobbyRooms));
-      };
-
-      if (room.state?.lobbyRooms) {
-        bindLobbyRooms(room.state.lobbyRooms);
-      }
-
-      room.onStateChange((state: SpaceState) => {
-        if (state?.lobbyRooms) {
-          bindLobbyRooms(state.lobbyRooms);
+          bindLobbyRooms(state.lobbyRooms as SpaceState["lobbyRooms"]);
         }
       });
       return room;
