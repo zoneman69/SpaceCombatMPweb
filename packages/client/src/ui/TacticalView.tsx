@@ -110,7 +110,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         return;
       }
       unitsRef.current = units;
-      Array.from(units.values()).forEach((unit) => ensureUnitMesh(unit));
+      units.forEach((unit) => ensureUnitMesh(unit));
       setUnitCount(units.size);
       units.onAdd((unit) => {
         ensureUnitMesh(unit);
@@ -153,7 +153,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       const delta = clock.getDelta();
       const units = unitsRef.current;
       if (units) {
-        Array.from(units.values()).forEach((unit) => {
+        units.forEach((unit) => {
           const render = meshesRef.current.get(unit.id);
           if (!render) {
             return;
