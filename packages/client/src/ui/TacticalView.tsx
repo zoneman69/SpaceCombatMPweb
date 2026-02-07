@@ -34,6 +34,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
+  const [debugInfo, setDebugInfo] = useState({
+    roomId: "n/a",
+    sessionId: "n/a",
+    hasRoom: false,
+    hasUnits: false,
+    unitTotal: 0,
+  });
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -124,21 +131,47 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     };
 
     let bindPoll: number | null = null;
+    let debugPoll: number | null = null;
 
     if (room?.state?.units) {
+      console.log("[tactical] binding units from initial state", {
+        roomId: room.roomId,
+        sessionId: room.sessionId,
+        units: room.state.units.size,
+      });
       bindUnits(room.state.units);
     } else if (room) {
+      console.log("[tactical] waiting for units state", {
+        roomId: room.roomId,
+        sessionId: room.sessionId,
+      });
       room.onStateChange((state) => {
         if (state?.units) {
+          console.log("[tactical] binding units from state change", {
+            units: state.units.size,
+          });
           bindUnits(state.units);
         }
       });
       bindPoll = window.setInterval(() => {
         if (room.state?.units && unitsRef.current !== room.state.units) {
+          console.log("[tactical] binding units from poll", {
+            units: room.state.units.size,
+          });
           bindUnits(room.state.units);
         }
       }, 250);
     }
+
+    debugPoll = window.setInterval(() => {
+      setDebugInfo({
+        roomId: room?.roomId ?? "n/a",
+        sessionId: room?.sessionId ?? "n/a",
+        hasRoom: !!room,
+        hasUnits: !!room?.state?.units,
+        unitTotal: room?.state?.units?.size ?? 0,
+      });
+    }, 1000);
 
     const resize = () => {
       if (!container || !rendererRef.current || !cameraRef.current) {
@@ -186,6 +219,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       resizeObserver.disconnect();
       if (bindPoll) {
         window.clearInterval(bindPoll);
+      }
+      if (debugPoll) {
+        window.clearInterval(debugPoll);
       }
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
@@ -326,6 +362,19 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
               Click one of your ships to set it as the active unit.
             </p>
           )}
+        </div>
+      </div>
+      <div className="tactical-hud tactical-hud-secondary">
+        <div>
+          <p className="hud-title">Debug telemetry</p>
+          <p className="hud-copy">
+            Room: {debugInfo.roomId} · Session: {debugInfo.sessionId}
+          </p>
+          <p className="hud-copy">
+            Connected: {debugInfo.hasRoom ? "yes" : "no"} · Units ready:{" "}
+            {debugInfo.hasUnits ? "yes" : "no"} · Unit count:{" "}
+            {debugInfo.unitTotal}
+          </p>
         </div>
       </div>
     </div>
