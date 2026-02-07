@@ -15,6 +15,13 @@ type UnitRender = {
   owner: string;
 };
 
+type DebugUnit = {
+  id: string;
+  owner: string;
+  x: number;
+  z: number;
+};
+
 const UNIT_COLORS = {
   friendly: new THREE.Color("#7dd3fc"),
   enemy: new THREE.Color("#f87171"),
@@ -31,6 +38,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const requestRef = useRef<number | null>(null);
   const unitsRef = useRef<SpaceState["units"] | null>(null);
   const meshesRef = useRef<Map<string, UnitRender>>(new Map());
+  const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
+  const localSessionIdRef = useRef<string | null>(localSessionId);
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
@@ -48,6 +57,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     [],
   );
+
+  useEffect(() => {
+    localSessionIdRef.current = localSessionId;
+  }, [localSessionId]);
 
   useEffect(() => {
     if (!room) {
@@ -110,13 +123,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
     const unitGeometry = new THREE.SphereGeometry(2.6, 12, 12);
 
-    const ensureUnitMesh = (unit: UnitSchema) => {
+    const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
         return;
       }
       const material = new THREE.MeshStandardMaterial({
         color:
-          unit.owner === localSessionId
+          unit.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly.clone()
             : UNIT_COLORS.enemy.clone(),
         emissive: new THREE.Color("#0b1b3a"),
@@ -149,6 +162,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         sessionId: room?.sessionId ?? "n/a",
         roomId: room?.roomId ?? "n/a",
       });
+      fallbackUnitsRef.current.clear();
       units.forEach((unit) => ensureUnitMesh(unit));
       setUnitCount(units.size);
       units.onAdd((unit) => {
@@ -208,6 +222,22 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
     room?.onMessage?.("debug:units", (payload) => {
       console.log("[tactical] debug units payload", payload);
+      if (
+        !payload ||
+        !Array.isArray(payload.units) ||
+        payload.units.length === 0
+      ) {
+        return;
+      }
+      if ((unitsRef.current?.size ?? 0) > 0) {
+        return;
+      }
+      fallbackUnitsRef.current.clear();
+      payload.units.forEach((unit: DebugUnit) => {
+        fallbackUnitsRef.current.set(unit.id, unit);
+        ensureUnitMesh(unit);
+      });
+      setUnitCount(payload.unitCount ?? fallbackUnitsRef.current.size);
     });
 
     debugPoll = window.setInterval(() => {
@@ -239,8 +269,14 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     const animate = () => {
       const delta = clock.getDelta();
       const units = unitsRef.current;
-      if (units) {
-        units.forEach((unit) => {
+      const fallbackUnits = fallbackUnitsRef.current;
+      const activeUnits = units?.size
+        ? units
+        : fallbackUnits.size
+          ? fallbackUnits
+          : null;
+      if (activeUnits) {
+        activeUnits.forEach((unit) => {
           const render = meshesRef.current.get(unit.id);
           if (!render) {
             return;
@@ -253,7 +289,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           } else {
             mesh.position.copy(target);
           }
-          mesh.rotation.y = -unit.rot;
+          mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
         });
       }
       renderer.render(scene, camera);
@@ -282,7 +318,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       meshesRef.current.clear();
       container.removeChild(renderer.domElement);
     };
-  }, [localSessionId, room, pointerNdc, raycaster, targetPlane]);
+  }, [room, pointerNdc, raycaster, targetPlane]);
 
   useEffect(() => {
     const selectedId = selection?.id;
@@ -298,12 +334,16 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           : UNIT_COLORS.enemy.clone();
     });
 
-    if (!selectedId || !unitsRef.current) {
+    if (!selectedId) {
       setSelectedHp(0);
       return;
     }
-    const selectedUnit = unitsRef.current.get(selectedId);
-    setSelectedHp(selectedUnit?.hp ?? 0);
+    const selectedUnit =
+      unitsRef.current?.get(selectedId) ??
+      fallbackUnitsRef.current.get(selectedId);
+    setSelectedHp(
+      selectedUnit && "hp" in selectedUnit ? selectedUnit.hp : 100,
+    );
   }, [localSessionId, selection]);
 
   useEffect(() => {
@@ -311,9 +351,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       return;
     }
     const interval = window.setInterval(() => {
-      const unit = unitsRef.current?.get(selection.id);
+      const unit =
+        unitsRef.current?.get(selection.id) ??
+        fallbackUnitsRef.current.get(selection.id);
       if (unit) {
-        setSelectedHp(unit.hp);
+        setSelectedHp("hp" in unit ? unit.hp : 100);
       }
     }, 250);
     return () => window.clearInterval(interval);
@@ -372,7 +414,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   };
 
   const selectedUnit = selection?.id
-    ? unitsRef.current?.get(selection.id) ?? null
+    ? unitsRef.current?.get(selection.id) ??
+      fallbackUnitsRef.current.get(selection.id) ??
+      null
     : null;
 
   return (
