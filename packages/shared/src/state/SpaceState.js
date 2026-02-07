@@ -25,6 +25,7 @@ export class UnitSchema extends Schema {
         this.orderZ = 0;
         this.orderTargetId = "";
         this.weaponCooldownLeft = 0;
+        this.unitType = "RESOURCE_COLLECTOR";
     }
 }
 __decorate([
@@ -83,6 +84,65 @@ __decorate([
     type("number"),
     __metadata("design:type", Object)
 ], UnitSchema.prototype, "weaponCooldownLeft", void 0);
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], UnitSchema.prototype, "unitType", void 0);
+export class BaseSchema extends Schema {
+    constructor() {
+        super(...arguments);
+        this.id = "";
+        this.owner = "";
+        this.x = 0;
+        this.z = 0;
+        this.hp = 400;
+    }
+}
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], BaseSchema.prototype, "id", void 0);
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], BaseSchema.prototype, "owner", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], BaseSchema.prototype, "x", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], BaseSchema.prototype, "z", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], BaseSchema.prototype, "hp", void 0);
+export class ResourceNodeSchema extends Schema {
+    constructor() {
+        super(...arguments);
+        this.id = "";
+        this.x = 0;
+        this.z = 0;
+        this.amount = 500;
+    }
+}
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], ResourceNodeSchema.prototype, "id", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], ResourceNodeSchema.prototype, "x", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], ResourceNodeSchema.prototype, "z", void 0);
+__decorate([
+    type("number"),
+    __metadata("design:type", Object)
+], ResourceNodeSchema.prototype, "amount", void 0);
 export class LobbyPlayerSchema extends Schema {
     constructor() {
         super(...arguments);
@@ -142,6 +202,8 @@ export class SpaceState extends Schema {
     constructor() {
         super(...arguments);
         this.units = new MapSchema();
+        this.bases = new MapSchema();
+        this.resources = new MapSchema();
         this.lobbyRooms = new MapSchema();
     }
 }
@@ -149,6 +211,14 @@ __decorate([
     type({ map: UnitSchema }),
     __metadata("design:type", Object)
 ], SpaceState.prototype, "units", void 0);
+__decorate([
+    type({ map: BaseSchema }),
+    __metadata("design:type", Object)
+], SpaceState.prototype, "bases", void 0);
+__decorate([
+    type({ map: ResourceNodeSchema }),
+    __metadata("design:type", Object)
+], SpaceState.prototype, "resources", void 0);
 __decorate([
     type({ map: LobbyRoomSchema }),
     __metadata("design:type", Object)

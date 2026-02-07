@@ -3,7 +3,6 @@ import { Schema, type, MapSchema } from "@colyseus/schema";
 export class UnitSchema extends Schema {
   @type("string") id = "";
   @type("string") owner = "";
-  @type("string") unitType = "RESOURCE_COLLECTOR";
   @type("number") x = 0;
   @type("number") z = 0;
   @type("number") vx = 0;
@@ -16,6 +15,22 @@ export class UnitSchema extends Schema {
   @type("number") orderZ = 0;
   @type("string") orderTargetId = "";
   @type("number") weaponCooldownLeft = 0;
+  @type("string") unitType = "RESOURCE_COLLECTOR";
+}
+
+export class BaseSchema extends Schema {
+  @type("string") id = "";
+  @type("string") owner = "";
+  @type("number") x = 0;
+  @type("number") z = 0;
+  @type("number") hp = 400;
+}
+
+export class ResourceNodeSchema extends Schema {
+  @type("string") id = "";
+  @type("number") x = 0;
+  @type("number") z = 0;
+  @type("number") amount = 500;
 }
 
 export class LobbyPlayerSchema extends Schema {
@@ -35,5 +50,8 @@ export class LobbyRoomSchema extends Schema {
 
 export class SpaceState extends Schema {
   @type({ map: UnitSchema }) units = new MapSchema<UnitSchema>();
+  @type({ map: BaseSchema }) bases = new MapSchema<BaseSchema>();
+  @type({ map: ResourceNodeSchema })
+  resources = new MapSchema<ResourceNodeSchema>();
   @type({ map: LobbyRoomSchema }) lobbyRooms = new MapSchema<LobbyRoomSchema>();
 }

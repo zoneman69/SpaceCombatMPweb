@@ -3,8 +3,10 @@ import { createRequire } from "module";
 import { nanoid } from "nanoid";
 import type { Command, ShipStats } from "@space-combat/shared";
 import {
+  BaseSchema,
   LobbyPlayerSchema,
   LobbyRoomSchema,
+  ResourceNodeSchema,
   SpaceState,
   UnitSchema,
 } from "@space-combat/shared";
@@ -134,6 +136,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         this.emitLobbyRooms();
       }
     });
+
+    this.ensureResourceNodes();
   }
 
   onJoin(client: Colyseus.Client) {
@@ -142,6 +146,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     this.emitLobbyRooms(client);
+    this.ensureBaseForClient(client.sessionId);
     this.ensureUnitsForClient(client.sessionId);
   }
 
@@ -157,11 +162,17 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         this.state.units.delete(id);
       }
     }
+    for (const [id, base] of this.state.bases.entries()) {
+      if (base.owner === client.sessionId) {
+        this.state.bases.delete(id);
+      }
+    }
   }
 
   private tick(dtMs: number) {
     const dt = dtMs / 1000;
     this.ensureUnitsForAllClients();
+    this.ensureBasesForAllClients();
     simulate({ units: this.state.units, stats: this.stats, dt });
   }
 
@@ -227,6 +238,61 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     player.ready = false;
     room.players.set(sessionId, player);
     this.playerRoomIds.set(sessionId, room.id);
+  }
+
+  private ensureBaseForClient(sessionId: string) {
+    let hasBase = false;
+    for (const base of this.state.bases.values()) {
+      if (base.owner === sessionId) {
+        hasBase = true;
+        break;
+      }
+    }
+    if (hasBase) {
+      return;
+    }
+    const base = new BaseSchema();
+    base.id = nanoid();
+    base.owner = sessionId;
+    const spawnOffset = this.clients.length * 6;
+    base.x = spawnOffset;
+    base.z = spawnOffset - 12;
+    this.state.bases.set(base.id, base);
+  }
+
+  private ensureBasesForAllClients() {
+    if (this.clients.length === 0) {
+      return;
+    }
+    const owners = new Set<string>();
+    for (const base of this.state.bases.values()) {
+      owners.add(base.owner);
+    }
+    this.clients.forEach((client) => {
+      if (!owners.has(client.sessionId)) {
+        this.ensureBaseForClient(client.sessionId);
+      }
+    });
+  }
+
+  private ensureResourceNodes() {
+    if (this.state.resources.size > 0) {
+      return;
+    }
+    const nodes = [
+      { x: -24, z: -10 },
+      { x: 0, z: 26 },
+      { x: 24, z: -8 },
+      { x: -36, z: 24 },
+      { x: 36, z: 22 },
+    ];
+    nodes.forEach((node) => {
+      const resource = new ResourceNodeSchema();
+      resource.id = nanoid();
+      resource.x = node.x;
+      resource.z = node.z;
+      this.state.resources.set(resource.id, resource);
+    });
   }
 
   private ensureUnitsForClient(sessionId: string) {

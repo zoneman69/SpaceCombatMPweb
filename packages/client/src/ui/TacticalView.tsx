@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import * as THREE from "three";
-import type { SpaceState, UnitSchema } from "@space-combat/shared";
+import type {
+  BaseSchema,
+  ResourceNodeSchema,
+  SpaceState,
+  UnitSchema,
+} from "@space-combat/shared";
 
 type TacticalViewProps = {
   room: Room<SpaceState> | null;
@@ -13,6 +18,10 @@ type Selection = { id: string } | null;
 type UnitRender = {
   mesh: THREE.Mesh;
   owner: string;
+};
+
+type MapRender = {
+  mesh: THREE.Mesh;
 };
 
 type DebugUnit = {
@@ -27,6 +36,8 @@ const UNIT_COLORS = {
   enemy: new THREE.Color("#f87171"),
   selected: new THREE.Color("#facc15"),
 };
+const BASE_COLOR = new THREE.Color("#a855f7");
+const RESOURCE_COLOR = new THREE.Color("#34d399");
 
 const PLANE_SIZE = 180;
 const MOVE_EPSILON = 0.25;
@@ -37,7 +48,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const requestRef = useRef<number | null>(null);
   const unitsRef = useRef<SpaceState["units"] | null>(null);
+  const basesRef = useRef<SpaceState["bases"] | null>(null);
+  const resourcesRef = useRef<SpaceState["resources"] | null>(null);
   const meshesRef = useRef<Map<string, UnitRender>>(new Map());
+  const baseMeshesRef = useRef<Map<string, MapRender>>(new Map());
+  const resourceMeshesRef = useRef<Map<string, MapRender>>(new Map());
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
   const [selection, setSelection] = useState<Selection>(null);
@@ -122,6 +137,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     scene.add(rim);
 
     const unitGeometry = new THREE.SphereGeometry(2.6, 12, 12);
+    const baseGeometry = new THREE.CylinderGeometry(4.4, 5.6, 4, 12);
+    const resourceGeometry = new THREE.OctahedronGeometry(3.4, 0);
 
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
@@ -150,6 +167,56 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
       meshesRef.current.delete(unitId);
+    };
+
+    const ensureBaseMesh = (base: BaseSchema) => {
+      if (baseMeshesRef.current.has(base.id)) {
+        return;
+      }
+      const material = new THREE.MeshStandardMaterial({
+        color: BASE_COLOR.clone(),
+        emissive: new THREE.Color("#2b0f4a"),
+      });
+      const mesh = new THREE.Mesh(baseGeometry.clone(), material);
+      mesh.position.set(base.x, 0, base.z);
+      scene.add(mesh);
+      baseMeshesRef.current.set(base.id, { mesh });
+    };
+
+    const removeBaseMesh = (baseId: string) => {
+      const render = baseMeshesRef.current.get(baseId);
+      if (!render) {
+        return;
+      }
+      scene.remove(render.mesh);
+      render.mesh.geometry.dispose();
+      (render.mesh.material as THREE.Material).dispose();
+      baseMeshesRef.current.delete(baseId);
+    };
+
+    const ensureResourceMesh = (resource: ResourceNodeSchema) => {
+      if (resourceMeshesRef.current.has(resource.id)) {
+        return;
+      }
+      const material = new THREE.MeshStandardMaterial({
+        color: RESOURCE_COLOR.clone(),
+        emissive: new THREE.Color("#0f2f24"),
+      });
+      const mesh = new THREE.Mesh(resourceGeometry.clone(), material);
+      mesh.position.set(resource.x, 0, resource.z);
+      scene.add(mesh);
+      resourceMeshesRef.current.set(resource.id, { mesh });
+    };
+
+    const removeResourceMesh = (resourceId: string) => {
+      const render = resourceMeshesRef.current.get(resourceId);
+      if (!render) {
+        return;
+      }
+      scene.remove(render.mesh);
+      render.mesh.geometry.dispose();
+      (render.mesh.material as THREE.Material).dispose();
+      resourceMeshesRef.current.delete(resourceId);
     };
 
     const bindUnits = (units: SpaceState["units"]) => {
@@ -181,6 +248,26 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         setSelection((prev) => (prev?.id === unit.id ? null : prev));
         setUnitCount((prev) => Math.max(0, prev - 1));
       });
+    };
+
+    const bindBases = (bases: SpaceState["bases"]) => {
+      if (basesRef.current === bases) {
+        return;
+      }
+      basesRef.current = bases;
+      bases.forEach((base) => ensureBaseMesh(base));
+      bases.onAdd((base) => ensureBaseMesh(base));
+      bases.onRemove((base) => removeBaseMesh(base.id));
+    };
+
+    const bindResources = (resources: SpaceState["resources"]) => {
+      if (resourcesRef.current === resources) {
+        return;
+      }
+      resourcesRef.current = resources;
+      resources.forEach((resource) => ensureResourceMesh(resource));
+      resources.onAdd((resource) => ensureResourceMesh(resource));
+      resources.onRemove((resource) => removeResourceMesh(resource.id));
     };
 
     let bindPoll: number | null = null;
@@ -219,6 +306,23 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         }
       }, 250);
     }
+
+    if (room?.state?.bases) {
+      bindBases(room.state.bases);
+    }
+
+    if (room?.state?.resources) {
+      bindResources(room.state.resources);
+    }
+
+    room?.onStateChange((state) => {
+      if (state?.bases) {
+        bindBases(state.bases);
+      }
+      if (state?.resources) {
+        bindResources(state.resources);
+      }
+    });
 
     room?.onMessage?.("debug:units", (payload) => {
       console.log("[tactical] debug units payload", payload);
@@ -292,6 +396,20 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
         });
       }
+      basesRef.current?.forEach((base) => {
+        const render = baseMeshesRef.current.get(base.id);
+        if (!render) {
+          return;
+        }
+        render.mesh.position.set(base.x, 0, base.z);
+      });
+      resourcesRef.current?.forEach((resource) => {
+        const render = resourceMeshesRef.current.get(resource.id);
+        if (!render) {
+          return;
+        }
+        render.mesh.position.set(resource.x, 0, resource.z);
+      });
       renderer.render(scene, camera);
       requestRef.current = requestAnimationFrame(animate);
     };
@@ -311,11 +429,23 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       }
       renderer.dispose();
       unitGeometry.dispose();
+      baseGeometry.dispose();
+      resourceGeometry.dispose();
       meshesRef.current.forEach((render) => {
         render.mesh.geometry.dispose();
         (render.mesh.material as THREE.Material).dispose();
       });
       meshesRef.current.clear();
+      baseMeshesRef.current.forEach((render) => {
+        render.mesh.geometry.dispose();
+        (render.mesh.material as THREE.Material).dispose();
+      });
+      baseMeshesRef.current.clear();
+      resourceMeshesRef.current.forEach((render) => {
+        render.mesh.geometry.dispose();
+        (render.mesh.material as THREE.Material).dispose();
+      });
+      resourceMeshesRef.current.clear();
       container.removeChild(renderer.domElement);
     };
   }, [room, pointerNdc, raycaster, targetPlane]);
@@ -418,6 +548,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       fallbackUnitsRef.current.get(selection.id) ??
       null
     : null;
+  const selectedUnitType =
+    selectedUnit && "unitType" in selectedUnit
+      ? selectedUnit.unitType
+      : "RESOURCE_COLLECTOR";
 
   return (
     <div className="tactical-view">
@@ -446,7 +580,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           </p>
           {selectedUnit ? (
             <p className="hud-copy">
-              Hull {Math.floor(selectedHp)}/100. Owner {selectedUnit.owner}.
+              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} · Owner{" "}
+              {selectedUnit.owner}.
             </p>
           ) : (
             <p className="hud-copy">
