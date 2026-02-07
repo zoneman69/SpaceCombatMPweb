@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { colyseus, WS_URL } from "../net";
 import colyseusPkg from "colyseus.js/package.json";
 import { SpaceState } from "@space-combat/shared";
+import type { Room } from "colyseus.js";
 import type {
   LobbyPlayerSchema,
   LobbyRoomSchema,
@@ -34,6 +35,7 @@ export default function App() {
   const [activeRoomId, setActiveRoomId] = useState<string | null>(null);
   const [localSessionId, setLocalSessionId] = useState<string | null>(null);
   const [hasConnected, setHasConnected] = useState(false);
+  const [room, setRoom] = useState<Room<SpaceState> | null>(null);
   const roomRef = useRef<any>(null);
   const lobbyRoomsRef = useRef<SpaceState["lobbyRooms"] | null>(null);
   const activeRoomIdRef = useRef<string | null>(null);
@@ -60,6 +62,7 @@ export default function App() {
       });
       const room = await colyseus.joinOrCreate<SpaceState>("space");
       roomRef.current = room;
+      setRoom(room);
       setStatus(`connected ✅ roomId=${room.roomId ?? "unknown"}`);
       setLocalSessionId(room.sessionId ?? null);
       setHasConnected(true);
@@ -226,7 +229,7 @@ export default function App() {
         </header>
         <section className="game-stage">
           <TacticalView
-            room={roomRef.current}
+            room={room}
             localSessionId={localSessionId}
           />
         </section>
