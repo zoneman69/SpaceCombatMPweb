@@ -89,6 +89,9 @@ export default function TacticalView() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
+    renderer.domElement.style.display = "block";
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
@@ -188,7 +191,7 @@ export default function TacticalView() {
         return;
       }
       const { width, height } = container.getBoundingClientRect();
-      rendererRef.current.setSize(width, height);
+      rendererRef.current.setSize(width, height, false);
       const aspect = width / height;
       cameraRef.current.aspect = aspect;
       cameraRef.current.updateProjectionMatrix();
@@ -340,7 +343,9 @@ export default function TacticalView() {
   }, [selection]);
 
   const getCanvasCoords = (event: React.PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+    const bounds =
+      rendererRef.current?.domElement.getBoundingClientRect() ??
+      event.currentTarget.getBoundingClientRect();
     return {
       x: event.clientX - bounds.left,
       y: event.clientY - bounds.top,
