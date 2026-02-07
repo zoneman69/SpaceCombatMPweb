@@ -152,6 +152,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     this.emitLobbyRooms(client);
+    this.ensureResourceNodes();
     this.ensureBaseForClient(client.sessionId);
     this.ensureUnitsForClient(client.sessionId);
   }
@@ -185,6 +186,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private handleCommand(client: Colyseus.Client, command: Command) {
     const units = this.getClientUnits(client.sessionId, command.unitIds);
+    if (units.length === 0) {
+      this.ensureUnitsForClient(client.sessionId);
+      this.ensureBaseForClient(client.sessionId);
+      this.ensureResourceNodes();
+    }
     switch (command.t) {
       case "MOVE":
         units.forEach((unit) => {
