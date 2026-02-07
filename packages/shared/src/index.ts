@@ -1,2 +1,17 @@
 export * from "./types";
-export * from "./state/SpaceState";
+export {
+  BaseSchema,
+  LobbyPlayerSchema,
+  LobbyRoomSchema,
+  ResourceNodeSchema,
+  SpaceState,
+  UnitSchema,
+} from "./state/SpaceState.js";
+export type {
+  BaseSchema as BaseSchemaType,
+  LobbyPlayerSchema as LobbyPlayerSchemaType,
+  LobbyRoomSchema as LobbyRoomSchemaType,
+  ResourceNodeSchema as ResourceNodeSchemaType,
+  SpaceState as SpaceStateType,
+  UnitSchema as UnitSchemaType,
+} from "./state/SpaceState";
