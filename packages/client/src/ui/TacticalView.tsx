@@ -81,6 +81,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     if (!room) {
       return;
     }
+    room.send("lobby:ensureWorld");
     room.send("lobby:ensureUnits");
     room.send("debug:dumpUnits");
   }, [room]);
@@ -91,9 +92,14 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     }
     let attempts = 0;
     const interval = window.setInterval(() => {
-      if (room.state?.units?.size) {
+      if (
+        room.state?.units?.size &&
+        room.state?.bases?.size &&
+        room.state?.resources?.size
+      ) {
         return;
       }
+      room.send("lobby:ensureWorld");
       room.send("lobby:ensureUnits");
       room.send("debug:dumpUnits");
       attempts += 1;
