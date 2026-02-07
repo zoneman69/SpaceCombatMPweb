@@ -225,7 +225,10 @@ export default function App() {
           </button>
         </header>
         <section className="game-stage">
-          <TacticalView />
+          <TacticalView
+            room={roomRef.current}
+            localSessionId={localSessionId}
+          />
         </section>
       </div>
     );
