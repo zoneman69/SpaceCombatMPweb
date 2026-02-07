@@ -36,13 +36,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     console.log("[lobby] space room created", {
       colyseus: colyseusPkg.version,
     });
-    this.onStateChange(() => {
-      console.log("[lobby] state change", {
-        units: this.state.units.size,
-        rooms: this.state.lobbyRooms.size,
-        clients: this.clients.length,
-      });
-    });
 
     this.onMessage("command", (client, message: Command) => {
       this.handleCommand(client, message);
