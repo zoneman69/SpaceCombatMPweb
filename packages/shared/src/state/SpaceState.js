@@ -26,6 +26,7 @@ export class UnitSchema extends Schema {
         this.orderZ = 0;
         this.orderTargetId = "";
         this.weaponCooldownLeft = 0;
+        this.unitType = "RESOURCE_COLLECTOR";
     }
 }
 __decorate([
@@ -88,6 +89,10 @@ __decorate([
     type("number"),
     __metadata("design:type", Object)
 ], UnitSchema.prototype, "weaponCooldownLeft", void 0);
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], UnitSchema.prototype, "unitType", void 0);
 export class BaseSchema extends Schema {
     constructor() {
         super(...arguments);
