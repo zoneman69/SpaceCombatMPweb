@@ -45,6 +45,19 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       this.ensureUnitsForClient(client.sessionId);
     });
 
+    this.onMessage("debug:dumpUnits", (client) => {
+      const summary = Array.from(this.state.units.values()).map((unit) => ({
+        id: unit.id,
+        owner: unit.owner,
+        x: unit.x,
+        z: unit.z,
+      }));
+      client.send("debug:units", {
+        unitCount: summary.length,
+        units: summary,
+      });
+    });
+
     this.onMessage("lobby:setName", (client, name: string) => {
       console.log("[lobby] setName", {
         sessionId: client.sessionId,

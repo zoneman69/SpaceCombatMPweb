@@ -54,6 +54,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       return;
     }
     room.send("lobby:ensureUnits");
+    room.send("debug:dumpUnits");
   }, [room]);
 
   useEffect(() => {
@@ -66,6 +67,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         return;
       }
       room.send("lobby:ensureUnits");
+      room.send("debug:dumpUnits");
       attempts += 1;
       if (attempts >= 5) {
         window.clearInterval(interval);
@@ -203,6 +205,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         }
       }, 250);
     }
+
+    room?.onMessage?.("debug:units", (payload) => {
+      console.log("[tactical] debug units payload", payload);
+    });
 
     debugPoll = window.setInterval(() => {
       setDebugInfo({
