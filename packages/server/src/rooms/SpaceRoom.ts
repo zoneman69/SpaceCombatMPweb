@@ -47,6 +47,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       this.ensureUnitsForClient(client.sessionId);
     });
 
+    this.onMessage("lobby:ensureWorld", (client) => {
+      this.ensureResourceNodes();
+      this.ensureBaseForClient(client.sessionId);
+      this.ensureUnitsForClient(client.sessionId);
+    });
+
     this.onMessage("debug:dumpUnits", (client) => {
       const summary = Array.from(this.state.units.values()).map((unit) => ({
         id: unit.id,
@@ -146,6 +152,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
     this.emitLobbyRooms(client);
+    this.ensureResourceNodes();
     this.ensureBaseForClient(client.sessionId);
     this.ensureUnitsForClient(client.sessionId);
   }
@@ -173,11 +180,17 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const dt = dtMs / 1000;
     this.ensureUnitsForAllClients();
     this.ensureBasesForAllClients();
+    this.ensureResourceNodes();
     simulate({ units: this.state.units, stats: this.stats, dt });
   }
 
   private handleCommand(client: Colyseus.Client, command: Command) {
     const units = this.getClientUnits(client.sessionId, command.unitIds);
+    if (units.length === 0) {
+      this.ensureUnitsForClient(client.sessionId);
+      this.ensureBaseForClient(client.sessionId);
+      this.ensureResourceNodes();
+    }
     switch (command.t) {
       case "MOVE":
         units.forEach((unit) => {
