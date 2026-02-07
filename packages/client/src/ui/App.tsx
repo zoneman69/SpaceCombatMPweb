@@ -67,7 +67,7 @@ export default function App() {
       }
 
       room.onStateChange((state: SpaceState) => {
-        if (!(state instanceof SpaceState)) {
+        if (!state?.lobbyRooms) {
           return;
         }
         const lobbyRooms = (
