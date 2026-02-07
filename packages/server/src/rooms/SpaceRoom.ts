@@ -246,10 +246,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     console.log("[lobby] spawning units", { sessionId });
     const spawnOffset = this.clients.length * 6;
-    for (let i = 0; i < 5; i += 1) {
+    for (let i = 0; i < 1; i += 1) {
       const unit = new UnitSchema();
       unit.id = nanoid();
       unit.owner = sessionId;
+      unit.unitType = "RESOURCE_COLLECTOR";
       unit.x = spawnOffset + i * 2;
       unit.z = spawnOffset;
       this.state.units.set(unit.id, unit);

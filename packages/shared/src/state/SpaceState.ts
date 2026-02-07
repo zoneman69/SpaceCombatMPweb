@@ -3,6 +3,7 @@ import { Schema, type, MapSchema } from "@colyseus/schema";
 export class UnitSchema extends Schema {
   @type("string") id = "";
   @type("string") owner = "";
+  @type("string") unitType = "RESOURCE_COLLECTOR";
   @type("number") x = 0;
   @type("number") z = 0;
   @type("number") vx = 0;
