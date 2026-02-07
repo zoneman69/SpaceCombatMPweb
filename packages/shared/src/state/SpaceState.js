@@ -13,6 +13,7 @@ export class UnitSchema extends Schema {
         super(...arguments);
         this.id = "";
         this.owner = "";
+        this.unitType = "RESOURCE_COLLECTOR";
         this.x = 0;
         this.z = 0;
         this.vx = 0;
@@ -36,6 +37,10 @@ __decorate([
     type("string"),
     __metadata("design:type", Object)
 ], UnitSchema.prototype, "owner", void 0);
+__decorate([
+    type("string"),
+    __metadata("design:type", Object)
+], UnitSchema.prototype, "unitType", void 0);
 __decorate([
     type("number"),
     __metadata("design:type", Object)
