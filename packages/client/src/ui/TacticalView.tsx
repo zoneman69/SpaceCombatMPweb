@@ -31,6 +31,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const requestRef = useRef<number | null>(null);
   const unitsRef = useRef<SpaceState["units"] | null>(null);
   const meshesRef = useRef<Map<string, UnitRender>>(new Map());
+  const localSessionIdRef = useRef<string | null>(localSessionId);
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
@@ -48,6 +49,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     [],
   );
+
+  useEffect(() => {
+    localSessionIdRef.current = localSessionId;
+  }, [localSessionId]);
 
   useEffect(() => {
     if (!room) {
@@ -116,7 +121,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       }
       const material = new THREE.MeshStandardMaterial({
         color:
-          unit.owner === localSessionId
+          unit.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly.clone()
             : UNIT_COLORS.enemy.clone(),
         emissive: new THREE.Color("#0b1b3a"),
@@ -282,7 +287,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       meshesRef.current.clear();
       container.removeChild(renderer.domElement);
     };
-  }, [localSessionId, room, pointerNdc, raycaster, targetPlane]);
+  }, [room, pointerNdc, raycaster, targetPlane]);
 
   useEffect(() => {
     const selectedId = selection?.id;
