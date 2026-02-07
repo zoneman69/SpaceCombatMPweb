@@ -35,6 +35,7 @@ export default function App() {
   const [localSessionId, setLocalSessionId] = useState<string | null>(null);
   const [hasConnected, setHasConnected] = useState(false);
   const roomRef = useRef<any>(null);
+  const lobbyRoomsRef = useRef<SpaceState["lobbyRooms"] | null>(null);
   const activeRoomIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -66,12 +67,9 @@ export default function App() {
         room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
 
-      room.onStateChange((state: SpaceState) => {
-        if (!(state instanceof SpaceState)) {
-          return;
-        }
-        const lobbyRooms = (
-          Array.from(state.lobbyRooms.values()) as LobbyRoomSchema[]
+      const syncLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
+        const nextRooms = (
+          Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
         ).map(
           (roomItem) => ({
             id: roomItem.id,
@@ -87,11 +85,11 @@ export default function App() {
             })),
           }),
         );
-        setRooms(lobbyRooms);
+        setRooms(nextRooms);
         if (!room.sessionId) {
           return;
         }
-        const currentRoom = lobbyRooms.find((lobby) =>
+        const currentRoom = nextRooms.find((lobby) =>
           lobby.players.some((player) => player.id === room.sessionId),
         );
         if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
@@ -100,9 +98,30 @@ export default function App() {
         if (
           !currentRoom &&
           activeRoomIdRef.current &&
-          lobbyRooms.every((r) => r.id !== activeRoomIdRef.current)
+          nextRooms.every((r) => r.id !== activeRoomIdRef.current)
         ) {
           setActiveRoomId(null);
+        }
+      };
+
+      const bindLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
+        if (lobbyRoomsRef.current === lobbyRooms) {
+          return;
+        }
+        lobbyRoomsRef.current = lobbyRooms;
+        syncLobbyRooms(lobbyRooms);
+        lobbyRooms.onAdd(() => syncLobbyRooms(lobbyRooms));
+        lobbyRooms.onRemove(() => syncLobbyRooms(lobbyRooms));
+        lobbyRooms.onChange(() => syncLobbyRooms(lobbyRooms));
+      };
+
+      if (room.state?.lobbyRooms) {
+        bindLobbyRooms(room.state.lobbyRooms);
+      }
+
+      room.onStateChange((state: SpaceState) => {
+        if (state?.lobbyRooms) {
+          bindLobbyRooms(state.lobbyRooms);
         }
       });
       return room;
