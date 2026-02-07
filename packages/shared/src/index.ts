@@ -8,10 +8,10 @@ export {
   UnitSchema,
 } from "./state/SpaceState.js";
 export type {
-  BaseSchema,
-  LobbyPlayerSchema,
-  LobbyRoomSchema,
-  ResourceNodeSchema,
-  SpaceState,
-  UnitSchema,
+  BaseSchema as BaseSchemaType,
+  LobbyPlayerSchema as LobbyPlayerSchemaType,
+  LobbyRoomSchema as LobbyRoomSchemaType,
+  ResourceNodeSchema as ResourceNodeSchemaType,
+  SpaceState as SpaceStateType,
+  UnitSchema as UnitSchemaType,
 } from "./state/SpaceState";
