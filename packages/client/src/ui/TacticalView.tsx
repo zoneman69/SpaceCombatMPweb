@@ -142,13 +142,25 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         return;
       }
       unitsRef.current = units;
+      console.log("[tactical] bindUnits", {
+        size: units.size,
+        sessionId: room?.sessionId ?? "n/a",
+        roomId: room?.roomId ?? "n/a",
+      });
       units.forEach((unit) => ensureUnitMesh(unit));
       setUnitCount(units.size);
       units.onAdd((unit) => {
+        console.log("[tactical] unit added", {
+          id: unit.id,
+          owner: unit.owner,
+          x: unit.x,
+          z: unit.z,
+        });
         ensureUnitMesh(unit);
         setUnitCount((prev) => prev + 1);
       });
       units.onRemove((unit) => {
+        console.log("[tactical] unit removed", { id: unit.id });
         removeUnitMesh(unit.id);
         setSelection((prev) => (prev?.id === unit.id ? null : prev));
         setUnitCount((prev) => Math.max(0, prev - 1));
@@ -176,7 +188,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             units: state.units.size,
           });
           bindUnits(state.units);
+          return;
         }
+        console.log("[tactical] state change without units", {
+          hasUnits: !!state?.units,
+        });
       });
       bindPoll = window.setInterval(() => {
         if (room.state?.units && unitsRef.current !== room.state.units) {
