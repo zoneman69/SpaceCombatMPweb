@@ -148,6 +148,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private tick(dtMs: number) {
     const dt = dtMs / 1000;
+    this.ensureUnitsForAllClients();
     simulate({ units: this.state.units, stats: this.stats, dt });
   }
 
@@ -226,6 +227,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (hasUnits) {
       return;
     }
+    console.log("[lobby] spawning units", { sessionId });
     const spawnOffset = this.clients.length * 6;
     for (let i = 0; i < 5; i += 1) {
       const unit = new UnitSchema();
@@ -235,6 +237,21 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       unit.z = spawnOffset;
       this.state.units.set(unit.id, unit);
     }
+  }
+
+  private ensureUnitsForAllClients() {
+    if (this.clients.length === 0) {
+      return;
+    }
+    const owners = new Set<string>();
+    for (const unit of this.state.units.values()) {
+      owners.add(unit.owner);
+    }
+    this.clients.forEach((client) => {
+      if (!owners.has(client.sessionId)) {
+        this.ensureUnitsForClient(client.sessionId);
+      }
+    });
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {
