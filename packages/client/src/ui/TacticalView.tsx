@@ -1,44 +1,74 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
-type Unit = {
+type BaseUnit = {
+  id: string;
+  mesh: THREE.Mesh;
+  health: number;
+  maxHealth: number;
+};
+
+type CollectorState = "idle" | "moving" | "movingToResource" | "gathering" | "returning";
+
+type CollectorUnit = {
   id: string;
   mesh: THREE.Mesh;
   target: THREE.Vector3;
+  state: CollectorState;
+  cargo: number;
+  capacity: number;
+  assignedResourceId: string | null;
+  homeBaseId: string;
 };
 
-type SelectionBox = {
-  active: boolean;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+type ResourceNode = {
+  id: string;
+  mesh: THREE.Mesh;
+  amount: number;
+  maxAmount: number;
 };
+
+type ShipUnit = {
+  id: string;
+  mesh: THREE.Mesh;
+};
+
+type Selection =
+  | { type: "base"; id: string }
+  | { type: "collector"; id: string }
+  | null;
 
 const UNIT_COLORS = {
   idle: new THREE.Color("#7dd3fc"),
   selected: new THREE.Color("#facc15"),
+  base: new THREE.Color("#60a5fa"),
+  collector: new THREE.Color("#fef08a"),
+  resource: new THREE.Color("#fb7185"),
+  ship: new THREE.Color("#c084fc"),
 };
 
 const PLANE_SIZE = 180;
-const UNIT_SPEED = 18;
+const COLLECTOR_SPEED = 16;
+const SHIP_COST = 50;
+const GATHER_RATE = 12;
+const COLLECTOR_CAPACITY = 40;
+const RESOURCE_PICKUP_DISTANCE = 2.6;
+const BASE_DROPOFF_DISTANCE = 4.2;
+const MOVE_EPSILON = 0.25;
 
 export default function TacticalView() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
-  const unitsRef = useRef<Unit[]>([]);
+  const basesRef = useRef<BaseUnit[]>([]);
+  const collectorsRef = useRef<CollectorUnit[]>([]);
+  const resourcesRef = useRef<ResourceNode[]>([]);
+  const shipsRef = useRef<ShipUnit[]>([]);
   const requestRef = useRef<number | null>(null);
-  const selectionStart = useRef<{ x: number; y: number } | null>(null);
-  const [selectionBox, setSelectionBox] = useState<SelectionBox>({
-    active: false,
-    x: 0,
-    y: 0,
-    width: 0,
-    height: 0,
-  });
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const oreRef = useRef(0);
+  const [oreCount, setOreCount] = useState(0);
+  const [selection, setSelection] = useState<Selection>(null);
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -59,6 +89,9 @@ export default function TacticalView() {
 
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(window.devicePixelRatio || 1);
+    renderer.domElement.style.width = "100%";
+    renderer.domElement.style.height = "100%";
+    renderer.domElement.style.display = "block";
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
@@ -77,35 +110,88 @@ export default function TacticalView() {
     rim.position.set(-60, 90, 120);
     scene.add(rim);
 
-    const baseGeometry = new THREE.ConeGeometry(2.4, 8, 6);
+    const baseGeometry = new THREE.ConeGeometry(4, 10, 6);
     baseGeometry.rotateX(Math.PI / 2);
+    const collectorGeometry = new THREE.BoxGeometry(3.2, 2.2, 3.2);
+    const resourceGeometry = new THREE.DodecahedronGeometry(2.6, 0);
+    const shipGeometry = new THREE.SphereGeometry(2.1, 12, 12);
 
-    const units: Unit[] = Array.from({ length: 8 }, (_, index) => {
+    const basePositions = [
+      new THREE.Vector3(-50, 0, -40),
+      new THREE.Vector3(50, 0, 40),
+    ];
+
+    const bases: BaseUnit[] = basePositions.map((position, index) => {
       const material = new THREE.MeshStandardMaterial({
-        color: UNIT_COLORS.idle.clone(),
-        emissive: new THREE.Color("#0a132a"),
+        color: UNIT_COLORS.base.clone(),
+        emissive: new THREE.Color("#0b1b3a"),
       });
       const mesh = new THREE.Mesh(baseGeometry, material);
-      mesh.position.set(
-        (Math.random() - 0.5) * (PLANE_SIZE * 0.6),
-        0,
-        (Math.random() - 0.5) * (PLANE_SIZE * 0.6),
-      );
+      mesh.position.copy(position);
+      mesh.userData = { type: "base", id: `base-${index}` };
       scene.add(mesh);
       return {
-        id: `unit-${index}`,
+        id: `base-${index}`,
         mesh,
-        target: mesh.position.clone(),
+        health: 100,
+        maxHealth: 100,
       };
     });
-    unitsRef.current = units;
+
+    const collectors: CollectorUnit[] = bases.map((base, index) => {
+      const material = new THREE.MeshStandardMaterial({
+        color: UNIT_COLORS.collector.clone(),
+        emissive: new THREE.Color("#1a1302"),
+      });
+      const mesh = new THREE.Mesh(collectorGeometry, material);
+      mesh.position.copy(base.mesh.position).add(new THREE.Vector3(0, 0, 10));
+      mesh.userData = { type: "collector", id: `collector-${index}` };
+      scene.add(mesh);
+      return {
+        id: `collector-${index}`,
+        mesh,
+        target: mesh.position.clone(),
+        state: "idle",
+        cargo: 0,
+        capacity: COLLECTOR_CAPACITY,
+        assignedResourceId: null,
+        homeBaseId: base.id,
+      };
+    });
+
+    const resourcePositions = [
+      new THREE.Vector3(-20, 0, 30),
+      new THREE.Vector3(10, 0, -10),
+      new THREE.Vector3(35, 0, 0),
+    ];
+
+    const resources: ResourceNode[] = resourcePositions.map((position, index) => {
+      const material = new THREE.MeshStandardMaterial({
+        color: UNIT_COLORS.resource.clone(),
+        emissive: new THREE.Color("#2b0b15"),
+      });
+      const mesh = new THREE.Mesh(resourceGeometry, material);
+      mesh.position.copy(position);
+      mesh.userData = { type: "resource", id: `resource-${index}` };
+      scene.add(mesh);
+      return {
+        id: `resource-${index}`,
+        mesh,
+        amount: 160,
+        maxAmount: 160,
+      };
+    });
+
+    basesRef.current = bases;
+    collectorsRef.current = collectors;
+    resourcesRef.current = resources;
 
     const resize = () => {
       if (!container || !rendererRef.current || !cameraRef.current) {
         return;
       }
       const { width, height } = container.getBoundingClientRect();
-      rendererRef.current.setSize(width, height);
+      rendererRef.current.setSize(width, height, false);
       const aspect = width / height;
       cameraRef.current.aspect = aspect;
       cameraRef.current.updateProjectionMatrix();
@@ -118,13 +204,87 @@ export default function TacticalView() {
     const clock = new THREE.Clock();
     const animate = () => {
       const delta = clock.getDelta();
-      unitsRef.current.forEach((unit) => {
-        const distance = unit.mesh.position.distanceTo(unit.target);
-        if (distance > 0.1) {
-          const direction = unit.target.clone().sub(unit.mesh.position).normalize();
-          const step = Math.min(distance, UNIT_SPEED * delta);
-          unit.mesh.position.add(direction.multiplyScalar(step));
-          unit.mesh.lookAt(unit.target);
+      collectorsRef.current.forEach((collector) => {
+        const distance = collector.mesh.position.distanceTo(collector.target);
+        if (distance > MOVE_EPSILON) {
+          const direction = collector.target
+            .clone()
+            .sub(collector.mesh.position)
+            .normalize();
+          const step = Math.min(distance, COLLECTOR_SPEED * delta);
+          collector.mesh.position.add(direction.multiplyScalar(step));
+          collector.mesh.lookAt(collector.target);
+        }
+
+        const assignedResource = collector.assignedResourceId
+          ? resourcesRef.current.find(
+              (resource) => resource.id === collector.assignedResourceId,
+            )
+          : null;
+        if (collector.state === "movingToResource" && assignedResource) {
+          const resourceDistance = collector.mesh.position.distanceTo(
+            assignedResource.mesh.position,
+          );
+          if (resourceDistance <= RESOURCE_PICKUP_DISTANCE) {
+            collector.state = "gathering";
+          }
+        }
+
+        if (collector.state === "gathering" && assignedResource) {
+          if (assignedResource.amount <= 0) {
+            collector.state = "returning";
+          } else {
+            const gathered = Math.min(
+              assignedResource.amount,
+              collector.capacity - collector.cargo,
+              GATHER_RATE * delta,
+            );
+            assignedResource.amount -= gathered;
+            collector.cargo += gathered;
+
+            const remainingRatio = Math.max(
+              assignedResource.amount / assignedResource.maxAmount,
+              0,
+            );
+            assignedResource.mesh.scale.setScalar(0.5 + remainingRatio * 0.6);
+            if (assignedResource.amount <= 0) {
+              assignedResource.mesh.visible = false;
+              collector.state = "returning";
+            }
+
+            if (collector.cargo >= collector.capacity - 0.01) {
+              collector.state = "returning";
+            }
+          }
+        }
+
+        if (collector.state === "returning") {
+          const homeBase = basesRef.current.find(
+            (base) => base.id === collector.homeBaseId,
+          );
+          if (homeBase) {
+            collector.target = homeBase.mesh.position.clone();
+            const baseDistance = collector.mesh.position.distanceTo(
+              homeBase.mesh.position,
+            );
+            if (baseDistance <= BASE_DROPOFF_DISTANCE) {
+              if (collector.cargo > 0) {
+                oreRef.current += collector.cargo;
+                setOreCount(Math.floor(oreRef.current));
+                collector.cargo = 0;
+              }
+              if (assignedResource && assignedResource.amount > 0) {
+                collector.state = "movingToResource";
+                collector.target = assignedResource.mesh.position.clone();
+              } else {
+                collector.state = "idle";
+              }
+            }
+          }
+        }
+
+        if (collector.state === "moving" && distance <= MOVE_EPSILON) {
+          collector.state = "idle";
         }
       });
       renderer.render(scene, camera);
@@ -140,26 +300,52 @@ export default function TacticalView() {
       }
       renderer.dispose();
       baseGeometry.dispose();
-      units.forEach((unit) => {
-        unit.mesh.geometry.dispose();
-        (unit.mesh.material as THREE.Material).dispose();
+      collectorGeometry.dispose();
+      resourceGeometry.dispose();
+      shipGeometry.dispose();
+      bases.forEach((base) => {
+        base.mesh.geometry.dispose();
+        (base.mesh.material as THREE.Material).dispose();
+      });
+      collectors.forEach((collector) => {
+        collector.mesh.geometry.dispose();
+        (collector.mesh.material as THREE.Material).dispose();
+      });
+      resources.forEach((resource) => {
+        resource.mesh.geometry.dispose();
+        (resource.mesh.material as THREE.Material).dispose();
+      });
+      shipsRef.current.forEach((ship) => {
+        ship.mesh.geometry.dispose();
+        (ship.mesh.material as THREE.Material).dispose();
       });
       container.removeChild(renderer.domElement);
     };
   }, [pointerNdc, raycaster, targetPlane]);
 
   useEffect(() => {
-    const selectedSet = new Set(selectedIds);
-    unitsRef.current.forEach((unit) => {
-      const material = unit.mesh.material as THREE.MeshStandardMaterial;
-      material.color = selectedSet.has(unit.id)
-        ? UNIT_COLORS.selected.clone()
-        : UNIT_COLORS.idle.clone();
+    const selectedId = selection?.id;
+    const selectedType = selection?.type;
+    basesRef.current.forEach((base) => {
+      const material = base.mesh.material as THREE.MeshStandardMaterial;
+      material.color =
+        selectedType === "base" && selectedId === base.id
+          ? UNIT_COLORS.selected.clone()
+          : UNIT_COLORS.base.clone();
     });
-  }, [selectedIds]);
+    collectorsRef.current.forEach((collector) => {
+      const material = collector.mesh.material as THREE.MeshStandardMaterial;
+      material.color =
+        selectedType === "collector" && selectedId === collector.id
+          ? UNIT_COLORS.selected.clone()
+          : UNIT_COLORS.collector.clone();
+    });
+  }, [selection]);
 
   const getCanvasCoords = (event: React.PointerEvent<HTMLDivElement>) => {
-    const bounds = event.currentTarget.getBoundingClientRect();
+    const bounds =
+      rendererRef.current?.domElement.getBoundingClientRect() ??
+      event.currentTarget.getBoundingClientRect();
     return {
       x: event.clientX - bounds.left,
       y: event.clientY - bounds.top,
@@ -168,77 +354,93 @@ export default function TacticalView() {
     };
   };
 
-  const onPointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0) {
-      return;
-    }
-    const { x, y } = getCanvasCoords(event);
-    selectionStart.current = { x, y };
-    setSelectionBox({ active: true, x, y, width: 0, height: 0 });
-  };
-
-  const onPointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!selectionStart.current) {
-      return;
-    }
-    const { x, y } = getCanvasCoords(event);
-    const start = selectionStart.current;
-    const left = Math.min(start.x, x);
-    const top = Math.min(start.y, y);
-    const width = Math.abs(start.x - x);
-    const height = Math.abs(start.y - y);
-    setSelectionBox({ active: true, x: left, y: top, width, height });
-  };
-
-  const onPointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (!selectionStart.current) {
-      return;
-    }
-    const { width: canvasWidth, height: canvasHeight } = getCanvasCoords(event);
-    const { x, y, width, height } = selectionBox;
-    const selected = unitsRef.current
-      .filter((unit) => {
-        const projected = unit.mesh.position.clone();
-        projected.project(cameraRef.current as THREE.Camera);
-        const screenX = (projected.x * 0.5 + 0.5) * canvasWidth;
-        const screenY = (-projected.y * 0.5 + 0.5) * canvasHeight;
-        return (
-          screenX >= x &&
-          screenX <= x + width &&
-          screenY >= y &&
-          screenY <= y + height
-        );
-      })
-      .map((unit) => unit.id);
-    setSelectedIds(selected);
-    selectionStart.current = null;
-    setSelectionBox((prev) => ({ ...prev, active: false, width: 0, height: 0 }));
-  };
-
-  const onContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
-    event.preventDefault();
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
     if (!rendererRef.current || !cameraRef.current) {
       return;
     }
-    const { x, y, width, height } = getCanvasCoords(event as any);
+    const { x, y, width, height } = getCanvasCoords(event);
     pointerNdc.x = (x / width) * 2 - 1;
     pointerNdc.y = -(y / height) * 2 + 1;
     raycaster.setFromCamera(pointerNdc, cameraRef.current);
+
+    const selectableMeshes = [
+      ...basesRef.current.map((base) => base.mesh),
+      ...collectorsRef.current.map((collector) => collector.mesh),
+    ];
+    const resourceMeshes = resourcesRef.current
+      .filter((resource) => resource.mesh.visible)
+      .map((resource) => resource.mesh);
+
+    const resourceHits = raycaster.intersectObjects(resourceMeshes, false);
+    if (resourceHits.length > 0) {
+      const selectedCollector =
+        selection?.type === "collector"
+          ? collectorsRef.current.find((unit) => unit.id === selection.id)
+          : null;
+      const resourceId = resourceHits[0].object.userData.id as string;
+      const resourceNode = resourcesRef.current.find(
+        (resource) => resource.id === resourceId,
+      );
+      if (selectedCollector && resourceNode) {
+        selectedCollector.assignedResourceId = resourceId;
+        selectedCollector.state = "movingToResource";
+        selectedCollector.target = resourceNode.mesh.position.clone();
+      }
+      return;
+    }
+
+    const hits = raycaster.intersectObjects(selectableMeshes, false);
+    if (hits.length > 0) {
+      const hit = hits[0].object.userData as { type: "base" | "collector"; id: string };
+      setSelection({ type: hit.type, id: hit.id });
+      return;
+    }
+
     const target = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(targetPlane, target)) {
-      const selection = new Set(selectedIds);
-      unitsRef.current.forEach((unit, index) => {
-        if (!selection.has(unit.id)) {
-          return;
-        }
-        const offset = new THREE.Vector3(
-          (index % 3) * 4,
-          0,
-          Math.floor(index / 3) * 4,
+      if (selection?.type === "collector") {
+        const collector = collectorsRef.current.find(
+          (unit) => unit.id === selection.id,
         );
-        unit.target = target.clone().add(offset);
-      });
+        if (collector) {
+          collector.target = target.clone();
+          collector.state = "moving";
+          collector.assignedResourceId = null;
+        }
+      } else {
+        setSelection(null);
+      }
     }
+  };
+
+  const selectedBase =
+    selection?.type === "base"
+      ? basesRef.current.find((base) => base.id === selection.id)
+      : null;
+  const selectedCollector =
+    selection?.type === "collector"
+      ? collectorsRef.current.find((unit) => unit.id === selection.id)
+      : null;
+
+  const buildShip = () => {
+    if (!rendererRef.current || !selectedBase || oreRef.current < SHIP_COST) {
+      return;
+    }
+    const scene = sceneRef.current;
+    if (!scene) {
+      return;
+    }
+    const material = new THREE.MeshStandardMaterial({
+      color: UNIT_COLORS.ship.clone(),
+      emissive: new THREE.Color("#1d0f34"),
+    });
+    const shipGeometry = new THREE.SphereGeometry(2.1, 12, 12);
+    const mesh = new THREE.Mesh(shipGeometry, material);
+    mesh.position.copy(selectedBase.mesh.position).add(new THREE.Vector3(0, 0, 8));
+    scene.add(mesh);
+    shipsRef.current.push({ id: `ship-${shipsRef.current.length}`, mesh });
+    oreRef.current -= SHIP_COST;
+    setOreCount(Math.floor(oreRef.current));
   };
 
   return (
@@ -246,35 +448,59 @@ export default function TacticalView() {
       <div
         className="tactical-canvas"
         ref={containerRef}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
-        onContextMenu={onContextMenu}
+        onPointerUp={handlePointerUp}
       >
-        {selectionBox.active && (
-          <div
-            className="selection-box"
-            style={{
-              left: selectionBox.x,
-              top: selectionBox.y,
-              width: selectionBox.width,
-              height: selectionBox.height,
-            }}
-          />
-        )}
       </div>
       <div className="tactical-hud">
         <div>
           <p className="hud-title">Squad Tactical View</p>
           <p className="hud-copy">
-            Drag a box to select ships. Right-click to issue a move order.
+            Select a base or collector. Click the field to move collectors, or
+            click resources to begin harvesting.
           </p>
         </div>
         <div className="hud-status">
-          <span>Selected</span>
-          <strong>{selectedIds.length}</strong>
+          <span>Ore reserves</span>
+          <strong>{oreCount}</strong>
         </div>
+      </div>
+      <div className="tactical-hud tactical-hud-secondary">
+        <div>
+          <p className="hud-title">
+            {selectedBase
+              ? "Base Command"
+              : selectedCollector
+                ? "Collector Control"
+                : "No unit selected"}
+          </p>
+          {selectedBase ? (
+            <p className="hud-copy">
+              Integrity {selectedBase.health}/{selectedBase.maxHealth}. Build
+              ships once your collectors bring in enough ore.
+            </p>
+          ) : selectedCollector ? (
+            <p className="hud-copy">
+              Cargo {Math.floor(selectedCollector.cargo)}/{selectedCollector.capacity}
+              . {selectedCollector.state.replace(/([A-Z])/g, " $1")}.
+            </p>
+          ) : (
+            <p className="hud-copy">
+              Click a base to open build options or a collector to issue orders.
+            </p>
+          )}
+        </div>
+        {selectedBase && (
+          <div className="hud-actions">
+            <button
+              className="btn primary"
+              type="button"
+              disabled={oreCount < SHIP_COST}
+              onClick={buildShip}
+            >
+              Build scout ship ({SHIP_COST} ore)
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
