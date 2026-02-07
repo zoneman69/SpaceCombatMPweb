@@ -33,21 +33,6 @@ export class ResourceNodeSchema extends Schema {
   @type("number") amount = 500;
 }
 
-export class BaseSchema extends Schema {
-  @type("string") id = "";
-  @type("string") owner = "";
-  @type("number") x = 0;
-  @type("number") z = 0;
-  @type("number") hp = 400;
-}
-
-export class ResourceNodeSchema extends Schema {
-  @type("string") id = "";
-  @type("number") x = 0;
-  @type("number") z = 0;
-  @type("number") amount = 500;
-}
-
 export class LobbyPlayerSchema extends Schema {
   @type("string") id = "";
   @type("string") name = "";
