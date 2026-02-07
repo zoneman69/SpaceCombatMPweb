@@ -57,6 +57,24 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   }, [room]);
 
   useEffect(() => {
+    if (!room) {
+      return;
+    }
+    let attempts = 0;
+    const interval = window.setInterval(() => {
+      if (room.state?.units?.size) {
+        return;
+      }
+      room.send("lobby:ensureUnits");
+      attempts += 1;
+      if (attempts >= 5) {
+        window.clearInterval(interval);
+      }
+    }, 2000);
+    return () => window.clearInterval(interval);
+  }, [room]);
+
+  useEffect(() => {
     const container = containerRef.current;
     if (!container) {
       return;

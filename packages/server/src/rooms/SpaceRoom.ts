@@ -216,10 +216,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private ensureUnitsForClient(sessionId: string) {
-    const existingUnits = Array.from(this.state.units.values()).filter(
-      (unit) => unit.owner === sessionId,
-    );
-    if (existingUnits.length > 0) {
+    let hasUnits = false;
+    for (const unit of this.state.units.values()) {
+      if (unit.owner === sessionId) {
+        hasUnits = true;
+        break;
+      }
+    }
+    if (hasUnits) {
       return;
     }
     const spawnOffset = this.clients.length * 6;
