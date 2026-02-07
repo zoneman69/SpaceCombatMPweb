@@ -1,6 +1,7 @@
-import { Room } from "colyseus";
+import Colyseus from "colyseus";
+import { createRequire } from "module";
 import { nanoid } from "nanoid";
-import { SpaceState, UnitSchema } from "../state/SpaceState.js";
+import { LobbyPlayerSchema, LobbyRoomSchema, SpaceState, UnitSchema, } from "@space-combat/shared";
 import { simulate } from "../sim/simulate.js";
 const DEFAULT_STATS = {
     maxAccel: 8,
@@ -13,16 +14,94 @@ const DEFAULT_STATS = {
     weaponDamage: 10,
 };
 const TICK_RATE = 20;
-export class SpaceRoom extends Room {
-    stats = DEFAULT_STATS;
+const require = createRequire(import.meta.url);
+const colyseusPkg = require("colyseus/package.json");
+export class SpaceRoom extends Colyseus.Room {
+    constructor() {
+        super(...arguments);
+        this.stats = DEFAULT_STATS;
+        this.playerNames = new Map();
+        this.playerRoomIds = new Map();
+    }
     onCreate() {
         this.setState(new SpaceState());
         this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
+        console.log("[lobby] space room created", {
+            colyseus: colyseusPkg.version,
+        });
         this.onMessage("command", (client, message) => {
             this.handleCommand(client, message);
         });
+        this.onMessage("lobby:setName", (client, name) => {
+            console.log("[lobby] setName", {
+                sessionId: client.sessionId,
+                name,
+            });
+            if (typeof name !== "string" || name.trim().length === 0) {
+                return;
+            }
+            this.playerNames.set(client.sessionId, name.trim());
+            const roomId = this.playerRoomIds.get(client.sessionId);
+            if (roomId) {
+                const room = this.state.lobbyRooms.get(roomId);
+                const player = room?.players.get(client.sessionId);
+                if (player) {
+                    player.name = name.trim();
+                }
+                if (room && room.hostId === client.sessionId) {
+                    room.hostName = name.trim();
+                }
+            }
+        });
+        this.onMessage("lobby:createRoom", (client, payload) => {
+            console.log("[lobby] createRoom", {
+                sessionId: client.sessionId,
+                payload,
+            });
+            this.removePlayerFromLobbyRoom(client.sessionId);
+            const room = new LobbyRoomSchema();
+            room.id = nanoid();
+            room.name = payload?.name?.trim() || "Frontier Skirmish";
+            room.mode = payload?.mode?.trim() || "Squad Skirmish";
+            room.hostId = client.sessionId;
+            room.hostName = this.getPlayerName(client.sessionId);
+            this.state.lobbyRooms.set(room.id, room);
+            this.addPlayerToLobbyRoom(room, client.sessionId);
+        });
+        this.onMessage("lobby:joinRoom", (client, payload) => {
+            console.log("[lobby] joinRoom", {
+                sessionId: client.sessionId,
+                payload,
+            });
+            const roomId = payload?.roomId;
+            if (!roomId) {
+                return;
+            }
+            const room = this.state.lobbyRooms.get(roomId);
+            if (!room) {
+                return;
+            }
+            this.removePlayerFromLobbyRoom(client.sessionId);
+            this.addPlayerToLobbyRoom(room, client.sessionId);
+        });
+        this.onMessage("lobby:toggleReady", (client) => {
+            console.log("[lobby] toggleReady", { sessionId: client.sessionId });
+            const roomId = this.playerRoomIds.get(client.sessionId);
+            if (!roomId) {
+                return;
+            }
+            const room = this.state.lobbyRooms.get(roomId);
+            const player = room?.players.get(client.sessionId);
+            if (player) {
+                player.ready = !player.ready;
+            }
+        });
     }
     onJoin(client) {
+        console.log("[lobby] client joined space", {
+            sessionId: client.sessionId,
+        });
+        this.playerNames.set(client.sessionId, this.getPlayerName(client.sessionId));
         const spawnOffset = this.clients.length * 6;
         for (let i = 0; i < 5; i += 1) {
             const unit = new UnitSchema();
@@ -34,6 +113,11 @@ export class SpaceRoom extends Room {
         }
     }
     onLeave(client) {
+        console.log("[lobby] client left space", {
+            sessionId: client.sessionId,
+        });
+        this.removePlayerFromLobbyRoom(client.sessionId);
+        this.playerNames.delete(client.sessionId);
         for (const [id, unit] of this.state.units.entries()) {
             if (unit.owner === client.sessionId) {
                 this.state.units.delete(id);
@@ -96,5 +180,40 @@ export class SpaceRoom extends Room {
             }
         });
         return result;
+    }
+    addPlayerToLobbyRoom(room, sessionId) {
+        const player = new LobbyPlayerSchema();
+        player.id = sessionId;
+        player.name = this.getPlayerName(sessionId);
+        player.ready = false;
+        room.players.set(sessionId, player);
+        this.playerRoomIds.set(sessionId, room.id);
+    }
+    removePlayerFromLobbyRoom(sessionId) {
+        const roomId = this.playerRoomIds.get(sessionId);
+        if (!roomId) {
+            return;
+        }
+        const room = this.state.lobbyRooms.get(roomId);
+        if (!room) {
+            this.playerRoomIds.delete(sessionId);
+            return;
+        }
+        room.players.delete(sessionId);
+        this.playerRoomIds.delete(sessionId);
+        if (room.players.size === 0) {
+            this.state.lobbyRooms.delete(roomId);
+            return;
+        }
+        if (room.hostId === sessionId) {
+            const [nextHost] = Array.from(room.players.values());
+            if (nextHost) {
+                room.hostId = nextHost.id;
+                room.hostName = nextHost.name;
+            }
+        }
+    }
+    getPlayerName(sessionId) {
+        return this.playerNames.get(sessionId) ?? `Pilot-${sessionId.slice(0, 4)}`;
     }
 }
