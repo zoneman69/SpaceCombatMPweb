@@ -123,6 +123,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       });
     };
 
+    let bindPoll: number | null = null;
+
     if (room?.state?.units) {
       bindUnits(room.state.units);
     } else if (room) {
@@ -131,6 +133,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           bindUnits(state.units);
         }
       });
+      bindPoll = window.setInterval(() => {
+        if (room.state?.units && unitsRef.current !== room.state.units) {
+          bindUnits(room.state.units);
+        }
+      }, 250);
     }
 
     const resize = () => {
@@ -177,6 +184,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
     return () => {
       resizeObserver.disconnect();
+      if (bindPoll) {
+        window.clearInterval(bindPoll);
+      }
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
       }
