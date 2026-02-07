@@ -133,6 +133,27 @@ export default function App() {
         if (state?.lobbyRooms) {
           bindLobbyRooms(state.lobbyRooms);
         }
+      };
+
+      const bindLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
+        if (lobbyRoomsRef.current === lobbyRooms) {
+          return;
+        }
+        lobbyRoomsRef.current = lobbyRooms;
+        syncLobbyRooms(lobbyRooms);
+        lobbyRooms.onAdd(() => syncLobbyRooms(lobbyRooms));
+        lobbyRooms.onRemove(() => syncLobbyRooms(lobbyRooms));
+        lobbyRooms.onChange(() => syncLobbyRooms(lobbyRooms));
+      };
+
+      if (room.state?.lobbyRooms) {
+        bindLobbyRooms(room.state.lobbyRooms);
+      }
+
+      room.onStateChange((state: SpaceState) => {
+        if (state?.lobbyRooms) {
+          bindLobbyRooms(state.lobbyRooms);
+        }
       });
       return room;
     } catch (e: any) {
