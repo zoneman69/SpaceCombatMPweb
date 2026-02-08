@@ -32,6 +32,15 @@ type DebugUnit = {
   z: number;
 };
 
+const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
+  if ("unitType" in unit) {
+    return unit.unitType === "FIGHTER"
+      ? FOG_FIGHTER_VISION_RADIUS
+      : FOG_COLLECTOR_VISION_RADIUS;
+  }
+  return FOG_COLLECTOR_VISION_RADIUS;
+};
+
 const UNIT_COLORS = {
   friendly: new THREE.Color("#7dd3fc"),
   enemy: new THREE.Color("#f87171"),
@@ -58,8 +67,9 @@ const FIGHTER_COST = 150;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
-const FOG_UNIT_VISION_RADIUS = 160;
-const FOG_BASE_VISION_RADIUS = 220;
+const FOG_FIGHTER_VISION_RADIUS = 130;
+const FOG_COLLECTOR_VISION_RADIUS = 160;
+const FOG_BASE_VISION_RADIUS = 200;
 const FOG_VISIBILITY_EPSILON = 0.01;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
@@ -559,7 +569,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           fogSources.push({
             x: unit.x,
             z: unit.z,
-            radius: FOG_UNIT_VISION_RADIUS,
+            radius: getUnitFogRadius(unit),
           });
         });
         basesRef.current?.forEach((base) => {
