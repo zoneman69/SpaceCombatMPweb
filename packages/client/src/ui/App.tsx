@@ -154,10 +154,25 @@ export default function App() {
           activeRoomId: activeRoomIdRef.current,
           sessionId: room.sessionId ?? "n/a",
         });
+        const previousRooms = roomsRef.current;
+        if (
+          nextRooms.length === 0 &&
+          activeRoomIdRef.current &&
+          previousRooms.some(
+            (roomItem) => roomItem.id === activeRoomIdRef.current,
+          )
+        ) {
+          console.log("[lobby] ignore empty lobbyRooms update", {
+            activeRoomId: activeRoomIdRef.current,
+            previousCount: previousRooms.length,
+          });
+          setRooms(previousRooms);
+          return;
+        }
         const hydratedRooms = buildLobbyRooms(
           nextRooms,
           room.sessionId,
-          roomsRef.current,
+          previousRooms,
         );
         console.log("[lobby] hydratedRooms", {
           roomIds: hydratedRooms.map((room) => room.id),
