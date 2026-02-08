@@ -40,6 +40,7 @@ export default function App() {
   const roomRef = useRef<any>(null);
   const lobbyRoomsRef = useRef<SpaceState["lobbyRooms"] | null>(null);
   const activeRoomIdRef = useRef<string | null>(null);
+  const roomsRef = useRef<LobbyRoom[]>([]);
   const boundLobbyRoomPlayersRef = useRef<WeakSet<LobbyRoomSchema>>(
     new WeakSet(),
   );
@@ -47,6 +48,10 @@ export default function App() {
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
+
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
 
   useEffect(() => {
     void connect();
@@ -99,16 +104,70 @@ export default function App() {
         room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
 
+      const buildLobbyRooms = (
+        nextRooms: LobbyRoom[],
+        sessionId: string | null | undefined,
+        previousRooms: LobbyRoom[],
+      ) =>
+        nextRooms.map((roomItem) => {
+          const previousRoom = previousRooms.find(
+            (room) => room.id === roomItem.id,
+          );
+          const mergedRoom: LobbyRoom = {
+            id: roomItem.id,
+            name: roomItem.name || previousRoom?.name || "",
+            mode: roomItem.mode || previousRoom?.mode || "",
+            host: roomItem.host || previousRoom?.host || "",
+            hostId: roomItem.hostId || previousRoom?.hostId,
+            players:
+              roomItem.players.length > 0
+                ? roomItem.players
+                : previousRoom?.players ?? [],
+          };
+          if (
+            sessionId &&
+            mergedRoom.hostId === sessionId &&
+            mergedRoom.players.length === 0
+          ) {
+            mergedRoom.players = [
+              {
+                id: sessionId,
+                name: `Pilot-${sessionId.slice(0, 4)}`,
+                ready: false,
+              },
+            ];
+          }
+          return mergedRoom;
+        });
+
       const applyLobbyRooms = (nextRooms: LobbyRoom[]) => {
-        setRooms(nextRooms);
+        console.log("[lobby] applyLobbyRooms", {
+          incomingCount: nextRooms.length,
+          activeRoomId: activeRoomIdRef.current,
+          sessionId: room.sessionId ?? "n/a",
+        });
+        const hydratedRooms = buildLobbyRooms(
+          nextRooms,
+          room.sessionId,
+          roomsRef.current,
+        );
+        console.log("[lobby] hydratedRooms", {
+          roomIds: hydratedRooms.map((room) => room.id),
+          activeRoomId: activeRoomIdRef.current,
+          matchingRoom: hydratedRooms.find(
+            (roomItem) => roomItem.id === activeRoomIdRef.current,
+          ),
+        });
+        roomsRef.current = hydratedRooms;
+        setRooms(hydratedRooms);
         if (!room.sessionId) {
           return;
         }
         const currentRoom =
-          nextRooms.find((lobby) =>
+          hydratedRooms.find((lobby) =>
             lobby.players.some((player) => player.id === room.sessionId),
           ) ??
-          nextRooms.find((lobby) => lobby.hostId === room.sessionId);
+          hydratedRooms.find((lobby) => lobby.hostId === room.sessionId);
         if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
           setActiveRoomId(currentRoom.id);
         }
@@ -122,10 +181,14 @@ export default function App() {
       };
 
       const syncLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
-        const nextRooms = (
-          Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
-        ).map(
-          (roomItem) => {
+        console.log("[lobby] syncLobbyRooms", {
+          size: lobbyRooms.size,
+          activeRoomId: activeRoomIdRef.current,
+        });
+        const nextRooms = buildLobbyRooms(
+          (
+            Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
+          ).map((roomItem) => {
             const players = (
               Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
             ).map((player) => ({
@@ -133,17 +196,6 @@ export default function App() {
               name: player.name,
               ready: player.ready,
             }));
-            if (
-              players.length === 0 &&
-              room.sessionId &&
-              roomItem.hostId === room.sessionId
-            ) {
-              players.push({
-                id: room.sessionId,
-                name: `Pilot-${room.sessionId.slice(0, 4)}`,
-                ready: false,
-              });
-            }
             return {
               id: roomItem.id,
               name: roomItem.name,
@@ -152,7 +204,9 @@ export default function App() {
               hostId: roomItem.hostId,
               players,
             };
-          },
+          }),
+          room.sessionId,
+          roomsRef.current,
         );
         applyLobbyRooms(nextRooms);
       };
@@ -174,6 +228,10 @@ export default function App() {
         if (lobbyRoomsRef.current === lobbyRooms) {
           return;
         }
+        console.log("[lobby] bindLobbyRooms", {
+          size: lobbyRooms.size,
+          activeRoomId: activeRoomIdRef.current,
+        });
         lobbyRoomsRef.current = lobbyRooms;
         syncLobbyRooms(lobbyRooms);
         lobbyRooms.onAdd((roomItem) => {
@@ -194,6 +252,16 @@ export default function App() {
       room.onMessage("lobby:rooms", (payload) => {
         if (Array.isArray(payload)) {
           applyLobbyRooms(payload as LobbyRoom[]);
+        }
+      });
+
+      room.onMessage("lobby:joinedRoom", (payload) => {
+        const roomId =
+          payload && typeof payload.roomId === "string"
+            ? payload.roomId
+            : null;
+        if (roomId && roomId !== activeRoomIdRef.current) {
+          setActiveRoomId(roomId);
         }
       });
 
