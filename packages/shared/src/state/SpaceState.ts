@@ -24,6 +24,7 @@ export class BaseSchema extends Schema {
   @type("number") x = 0;
   @type("number") z = 0;
   @type("number") hp = 400;
+  @type("number") resourceStock = 0;
 }
 
 export class ResourceNodeSchema extends Schema {

@@ -359,6 +359,22 @@ h1 {
   font-size: 0.9rem;
 }
 
+.hud-button {
+  margin-top: 10px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  background: rgba(29, 78, 216, 0.25);
+  color: #e0f2fe;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.hud-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .hud-status {
   text-align: right;
 }

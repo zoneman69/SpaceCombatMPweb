@@ -39,8 +39,9 @@ const UNIT_COLORS = {
 const BASE_COLOR = new THREE.Color("#a855f7");
 const RESOURCE_COLOR = new THREE.Color("#34d399");
 
-const PLANE_SIZE = 180;
+const PLANE_SIZE = 360;
 const MOVE_EPSILON = 0.25;
+const RESOURCE_COLLECTOR_COST = 100;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +59,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
+  const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [debugInfo, setDebugInfo] = useState({
     roomId: "n/a",
     sessionId: "n/a",
@@ -82,7 +84,6 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       return;
     }
     room.send("lobby:ensureWorld");
-    room.send("lobby:ensureUnits");
     room.send("debug:dumpUnits");
   }, [room]);
 
@@ -100,7 +101,6 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         return;
       }
       room.send("lobby:ensureWorld");
-      room.send("lobby:ensureUnits");
       room.send("debug:dumpUnits");
       attempts += 1;
       if (attempts >= 5) {
@@ -128,7 +128,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     container.appendChild(renderer.domElement);
 
     const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 600);
-    camera.position.set(0, 90, 140);
+    camera.position.set(0, 140, 220);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
@@ -185,6 +185,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       });
       const mesh = new THREE.Mesh(baseGeometry.clone(), material);
       mesh.position.set(base.x, 0, base.z);
+      mesh.userData = { id: base.id };
       scene.add(mesh);
       baseMeshesRef.current.set(base.id, { mesh });
     };
@@ -521,6 +522,22 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     pointerNdc.y = -(y / height) * 2 + 1;
     raycaster.setFromCamera(pointerNdc, cameraRef.current);
 
+    const baseMeshes = Array.from(baseMeshesRef.current.values()).map(
+      (render) => render.mesh,
+    );
+    const baseHits = raycaster.intersectObjects(baseMeshes, false);
+    if (baseHits.length > 0) {
+      const hitId = baseHits[0].object.userData.id as string;
+      const base = basesRef.current?.get(hitId);
+      if (base && base.owner === localSessionId) {
+        setSelectedBaseId(hitId);
+      } else {
+        setSelectedBaseId(null);
+      }
+      setSelection(null);
+      return;
+    }
+
     const meshes = Array.from(meshesRef.current.values()).map(
       (render) => render.mesh,
     );
@@ -531,8 +548,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
+        setSelectedBaseId(null);
       } else {
         setSelection(null);
+        setSelectedBaseId(null);
       }
       return;
     }
@@ -557,6 +576,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       }
       const unitIds = selection?.id ? [selection.id] : ownedUnitIds;
       if (unitIds.length > 0) {
+        setSelectedBaseId(null);
         room.send("command", {
           t: "MOVE",
           unitIds,
@@ -574,6 +594,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       fallbackUnitsRef.current.get(selection.id) ??
       null
     : null;
+  const selectedBase = selectedBaseId
+    ? basesRef.current?.get(selectedBaseId) ?? null
+    : null;
+  const canBuildCollector =
+    !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -612,6 +637,41 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           ) : (
             <p className="hud-copy">
               Click one of your ships to set it as the active unit.
+            </p>
+          )}
+        </div>
+      </div>
+      <div className="tactical-hud tactical-hud-secondary">
+        <div>
+          <p className="hud-title">
+            {selectedBase ? "Base command" : "No base selected"}
+          </p>
+          {selectedBase ? (
+            <>
+              <p className="hud-copy">
+                Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
+                {selectedBase.owner}.
+              </p>
+              <button
+                className="hud-button"
+                type="button"
+                disabled={!canBuildCollector}
+                onClick={() => {
+                  if (!room || !selectedBase) {
+                    return;
+                  }
+                  room.send("base:build", {
+                    baseId: selectedBase.id,
+                    unitType: "RESOURCE_COLLECTOR",
+                  });
+                }}
+              >
+                Build resource collector ({RESOURCE_COLLECTOR_COST})
+              </button>
+            </>
+          ) : (
+            <p className="hud-copy">
+              Click your base to open the build menu.
             </p>
           )}
         </div>
