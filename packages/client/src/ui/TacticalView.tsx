@@ -39,7 +39,11 @@ const UNIT_COLORS = {
 const BASE_COLOR = new THREE.Color("#a855f7");
 const RESOURCE_COLOR = new THREE.Color("#34d399");
 
-const PLANE_SIZE = 360;
+const PLANE_SIZE = 720;
+const GRID_DIVISIONS = 36;
+const CAMERA_HEIGHT = 190;
+const CAMERA_DISTANCE = 300;
+const CAMERA_LERP_SPEED = 2.5;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
 const RESOURCE_SCALE_MIN = 0.5;
@@ -133,12 +137,17 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     rendererRef.current = renderer;
     container.appendChild(renderer.domElement);
 
-    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 600);
-    camera.position.set(0, 140, 220);
+    const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1200);
+    camera.position.set(0, CAMERA_HEIGHT, CAMERA_DISTANCE);
     camera.lookAt(0, 0, 0);
     cameraRef.current = camera;
 
-    const grid = new THREE.GridHelper(PLANE_SIZE, 20, "#2a3b64", "#1d2a4c");
+    const grid = new THREE.GridHelper(
+      PLANE_SIZE,
+      GRID_DIVISIONS,
+      "#2a3b64",
+      "#1d2a4c",
+    );
     scene.add(grid);
 
     const ambient = new THREE.AmbientLight(0xffffff, 0.8);
@@ -398,6 +407,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     resizeObserver.observe(container);
 
     const clock = new THREE.Clock();
+    const cameraTarget = new THREE.Vector3(0, 0, 0);
+    const cameraDesiredTarget = new THREE.Vector3(0, 0, 0);
+    const cameraPosition = new THREE.Vector3(0, CAMERA_HEIGHT, CAMERA_DISTANCE);
     const animate = () => {
       const delta = clock.getDelta();
       const units = unitsRef.current;
@@ -440,6 +452,47 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         const scale = getResourceScale(resource);
         render.mesh.scale.set(scale, scale, scale);
       });
+      const localOwner = localSessionIdRef.current;
+      if (localOwner) {
+        let centerX = 0;
+        let centerZ = 0;
+        let count = 0;
+        unitsRef.current?.forEach((unit) => {
+          if (unit.owner !== localOwner) {
+            return;
+          }
+          centerX += unit.x;
+          centerZ += unit.z;
+          count += 1;
+        });
+        if (count === 0) {
+          basesRef.current?.forEach((base) => {
+            if (base.owner !== localOwner) {
+              return;
+            }
+            centerX += base.x;
+            centerZ += base.z;
+            count += 1;
+          });
+        }
+        if (count > 0) {
+          cameraDesiredTarget.set(centerX / count, 0, centerZ / count);
+          cameraTarget.lerp(
+            cameraDesiredTarget,
+            Math.min(1, delta * CAMERA_LERP_SPEED),
+          );
+          cameraPosition.set(
+            cameraTarget.x,
+            CAMERA_HEIGHT,
+            cameraTarget.z + CAMERA_DISTANCE,
+          );
+          camera.position.lerp(
+            cameraPosition,
+            Math.min(1, delta * CAMERA_LERP_SPEED),
+          );
+          camera.lookAt(cameraTarget);
+        }
+      }
       renderer.render(scene, camera);
       requestRef.current = requestAnimationFrame(animate);
     };
