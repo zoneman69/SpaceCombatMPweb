@@ -23,6 +23,7 @@ type LobbyRoom = {
   name: string;
   mode: string;
   host: string;
+  hostId?: string;
   players: Player[];
 };
 
@@ -103,9 +104,11 @@ export default function App() {
         if (!room.sessionId) {
           return;
         }
-        const currentRoom = nextRooms.find((lobby) =>
-          lobby.players.some((player) => player.id === room.sessionId),
-        );
+        const currentRoom =
+          nextRooms.find((lobby) =>
+            lobby.players.some((player) => player.id === room.sessionId),
+          ) ??
+          nextRooms.find((lobby) => lobby.hostId === room.sessionId);
         if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
           setActiveRoomId(currentRoom.id);
         }
@@ -122,19 +125,34 @@ export default function App() {
         const nextRooms = (
           Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
         ).map(
-          (roomItem) => ({
-            id: roomItem.id,
-            name: roomItem.name,
-            mode: roomItem.mode,
-            host: roomItem.hostName,
-            players: (
+          (roomItem) => {
+            const players = (
               Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
             ).map((player) => ({
               id: player.id,
               name: player.name,
               ready: player.ready,
-            })),
-          }),
+            }));
+            if (
+              players.length === 0 &&
+              room.sessionId &&
+              roomItem.hostId === room.sessionId
+            ) {
+              players.push({
+                id: room.sessionId,
+                name: `Pilot-${room.sessionId.slice(0, 4)}`,
+                ready: false,
+              });
+            }
+            return {
+              id: roomItem.id,
+              name: roomItem.name,
+              mode: roomItem.mode,
+              host: roomItem.hostName,
+              hostId: roomItem.hostId,
+              players,
+            };
+          },
         );
         applyLobbyRooms(nextRooms);
       };
