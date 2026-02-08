@@ -182,7 +182,44 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.ensureUnitsForAllClients();
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
+    this.assignCollectorsToResources();
     simulate({ units: this.state.units, stats: this.stats, dt });
+  }
+
+  private assignCollectorsToResources() {
+    if (this.state.resources.size === 0) {
+      return;
+    }
+    const resources = Array.from(this.state.resources.values());
+    for (const unit of this.state.units.values()) {
+      if (unit.unitType !== "RESOURCE_COLLECTOR") {
+        continue;
+      }
+      if (unit.orderType !== "STOP") {
+        continue;
+      }
+      const target = resources.reduce((closest, resource) => {
+        if (!closest) {
+          return resource;
+        }
+        const currentDistance = Math.hypot(
+          unit.x - resource.x,
+          unit.z - resource.z,
+        );
+        const closestDistance = Math.hypot(
+          unit.x - closest.x,
+          unit.z - closest.z,
+        );
+        return currentDistance < closestDistance ? resource : closest;
+      }, null as ResourceNodeSchema | null);
+      if (!target) {
+        continue;
+      }
+      unit.orderType = "MOVE";
+      unit.orderX = target.x;
+      unit.orderZ = target.z;
+      unit.orderTargetId = "";
+    }
   }
 
   private handleCommand(client: Colyseus.Client, command: Command) {
