@@ -234,6 +234,16 @@ export default function App() {
         }
       });
 
+      room.onMessage("lobby:joinedRoom", (payload) => {
+        const roomId =
+          payload && typeof payload.roomId === "string"
+            ? payload.roomId
+            : null;
+        if (roomId && roomId !== activeRoomIdRef.current) {
+          setActiveRoomId(roomId);
+        }
+      });
+
       room.onStateChange((state) => {
         if (state?.lobbyRooms) {
           bindLobbyRooms(state.lobbyRooms as SpaceState["lobbyRooms"]);
