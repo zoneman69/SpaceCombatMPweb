@@ -299,6 +299,10 @@ h1 {
   text-align: center;
 }
 
+body.tactical-view-scroll-locked {
+  overflow: hidden;
+}
+
 .tactical-view {
   display: grid;
   gap: 16px;
