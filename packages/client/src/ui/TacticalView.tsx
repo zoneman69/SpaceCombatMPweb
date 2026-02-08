@@ -598,7 +598,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     ? basesRef.current?.get(selectedBaseId) ?? null
     : null;
   const canBuildCollector =
-    !!selectedBase && selectedBase.resources >= RESOURCE_COLLECTOR_COST;
+    !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -649,7 +649,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           {selectedBase ? (
             <>
               <p className="hud-copy">
-                Resources: {Math.floor(selectedBase.resources)} · Owner{" "}
+                Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
                 {selectedBase.owner}.
               </p>
               <button

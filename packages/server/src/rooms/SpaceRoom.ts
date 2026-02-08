@@ -50,6 +50,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
 
     this.onMessage("lobby:ensureWorld", (client) => {
+      console.log("[lobby] ensureWorld requested", {
+        sessionId: client.sessionId,
+      });
       this.ensureResourceNodes();
       this.ensureBaseForClient(client.sessionId);
     });
@@ -165,6 +168,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.emitLobbyRooms(client);
     this.ensureResourceNodes();
     this.ensureBaseForClient(client.sessionId);
+    console.log("[lobby] join world state", {
+      sessionId: client.sessionId,
+      bases: this.state.bases.size,
+      resources: this.state.resources.size,
+      units: this.state.units.size,
+    });
   }
 
   onLeave(client: Colyseus.Client) {
@@ -321,6 +330,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     }
     if (hasBase) {
+      console.log("[lobby] ensureBase skipped (already has base)", {
+        sessionId,
+      });
       return;
     }
     const base = new BaseSchema();
@@ -328,12 +340,19 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.owner = sessionId;
     const spawnIndex = this.baseSpawnIndex;
     this.baseSpawnIndex += 1;
-    const angle =
-      (spawnIndex / Math.max(1, this.clients.length)) * Math.PI * 2;
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+    const angle = spawnIndex * goldenAngle;
     base.x = Math.cos(angle) * BASE_SPAWN_RADIUS;
     base.z = Math.sin(angle) * BASE_SPAWN_RADIUS;
-    base.resources = BASE_STARTING_RESOURCES;
+    base.resourceStock = BASE_STARTING_RESOURCES;
     this.state.bases.set(base.id, base);
+    console.log("[lobby] base spawned", {
+      sessionId,
+      baseId: base.id,
+      x: base.x,
+      z: base.z,
+      resources: base.resourceStock,
+    });
   }
 
   private ensureBasesForAllClients() {
@@ -353,8 +372,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private ensureResourceNodes() {
     if (this.state.resources.size > 0) {
+      console.log("[lobby] resource nodes already seeded", {
+        count: this.state.resources.size,
+      });
       return;
     }
+    let seeded = 0;
     for (
       let x = -MAP_RESOURCE_RADIUS;
       x <= MAP_RESOURCE_RADIUS;
@@ -374,25 +397,45 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         resource.x = x;
         resource.z = z;
         this.state.resources.set(resource.id, resource);
+        seeded += 1;
       }
     }
+    console.log("[lobby] resource nodes seeded", { count: seeded });
   }
 
   private handleBuildRequest(
     client: Colyseus.Client,
     payload: { baseId?: string; unitType?: UnitSchema["unitType"] },
   ) {
+    console.log("[lobby] build request", {
+      sessionId: client.sessionId,
+      payload,
+    });
     if (!payload?.baseId || payload.unitType !== "RESOURCE_COLLECTOR") {
+      console.log("[lobby] build rejected (invalid payload)", {
+        sessionId: client.sessionId,
+        payload,
+      });
       return;
     }
     const base = this.state.bases.get(payload.baseId);
     if (!base || base.owner !== client.sessionId) {
+      console.log("[lobby] build rejected (invalid base)", {
+        sessionId: client.sessionId,
+        baseId: payload.baseId,
+      });
       return;
     }
-    if (base.resources < RESOURCE_COLLECTOR_COST) {
+    if (base.resourceStock < RESOURCE_COLLECTOR_COST) {
+      console.log("[lobby] build rejected (insufficient resources)", {
+        sessionId: client.sessionId,
+        baseId: base.id,
+        resources: base.resourceStock,
+        cost: RESOURCE_COLLECTOR_COST,
+      });
       return;
     }
-    base.resources -= RESOURCE_COLLECTOR_COST;
+    base.resourceStock -= RESOURCE_COLLECTOR_COST;
     const unit = new UnitSchema();
     unit.id = nanoid();
     unit.owner = client.sessionId;
@@ -400,6 +443,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.x = base.x + 6;
     unit.z = base.z + 6;
     this.state.units.set(unit.id, unit);
+    console.log("[lobby] build success", {
+      sessionId: client.sessionId,
+      unitId: unit.id,
+      baseId: base.id,
+      remaining: base.resourceStock,
+    });
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {
