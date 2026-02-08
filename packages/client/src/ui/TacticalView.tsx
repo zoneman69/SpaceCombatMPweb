@@ -556,6 +556,34 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       return;
     }
 
+    const resourceMeshes = Array.from(resourceMeshesRef.current.values()).map(
+      (render) => render.mesh,
+    );
+    const resourceHits = raycaster.intersectObjects(resourceMeshes, false);
+    if (resourceHits.length > 0) {
+      const resourceId = resourceHits[0].object.userData.id as string;
+      const resource = resourcesRef.current?.get(resourceId);
+      const selectedUnit =
+        selection?.id
+          ? unitsRef.current?.get(selection.id) ??
+            fallbackUnitsRef.current.get(selection.id) ??
+            null
+          : null;
+      const isCollector =
+        !!selectedUnit &&
+        "unitType" in selectedUnit &&
+        selectedUnit.unitType === "RESOURCE_COLLECTOR";
+      if (room && selection?.id && isCollector && resource) {
+        setSelectedBaseId(null);
+        room.send("command", {
+          t: "HARVEST",
+          unitIds: [selection.id],
+          resourceId: resource.id,
+        });
+        return;
+      }
+    }
+
     const target = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(targetPlane, target)) {
       if (!room) {
