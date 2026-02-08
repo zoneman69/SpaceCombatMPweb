@@ -39,6 +39,9 @@ export default function App() {
   const roomRef = useRef<any>(null);
   const lobbyRoomsRef = useRef<SpaceState["lobbyRooms"] | null>(null);
   const activeRoomIdRef = useRef<string | null>(null);
+  const boundLobbyRoomPlayersRef = useRef<WeakSet<LobbyRoomSchema>>(
+    new WeakSet(),
+  );
 
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
@@ -136,15 +139,31 @@ export default function App() {
         applyLobbyRooms(nextRooms);
       };
 
+      const attachLobbyRoomPlayers = (roomItem: LobbyRoomSchema) => {
+        if (boundLobbyRoomPlayersRef.current.has(roomItem)) {
+          return;
+        }
+        boundLobbyRoomPlayersRef.current.add(roomItem);
+        roomItem.players.onAdd(() => syncLobbyRooms(lobbyRoomsRef.current!));
+        roomItem.players.onRemove(() => syncLobbyRooms(lobbyRoomsRef.current!));
+        roomItem.players.onChange(() => syncLobbyRooms(lobbyRoomsRef.current!));
+      };
+
       const bindLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
         if (lobbyRoomsRef.current === lobbyRooms) {
           return;
         }
         lobbyRoomsRef.current = lobbyRooms;
         syncLobbyRooms(lobbyRooms);
-        lobbyRooms.onAdd(() => syncLobbyRooms(lobbyRooms));
+        lobbyRooms.onAdd((roomItem) => {
+          attachLobbyRoomPlayers(roomItem);
+          syncLobbyRooms(lobbyRooms);
+        });
         lobbyRooms.onRemove(() => syncLobbyRooms(lobbyRooms));
         lobbyRooms.onChange(() => syncLobbyRooms(lobbyRooms));
+        Array.from(lobbyRooms.values()).forEach((roomItem) =>
+          attachLobbyRoomPlayers(roomItem as LobbyRoomSchema),
+        );
       };
 
       if (room.state?.lobbyRooms) {
