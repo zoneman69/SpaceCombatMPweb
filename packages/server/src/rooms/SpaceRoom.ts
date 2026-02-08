@@ -263,7 +263,28 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       getStats: (unit) => this.stats[unit.unitType] ?? DEFAULT_STATS,
       dt,
     });
+    this.removeDestroyedUnits();
     this.processCollectorHarvesting();
+  }
+
+  private removeDestroyedUnits() {
+    const destroyedIds = new Set<string>();
+    for (const [id, unit] of this.state.units.entries()) {
+      if (unit.hp <= 0) {
+        destroyedIds.add(id);
+      }
+    }
+    if (destroyedIds.size === 0) {
+      return;
+    }
+    for (const unitId of destroyedIds) {
+      this.state.units.delete(unitId);
+    }
+    for (const [baseId, lockedBy] of this.baseDropoffLocks.entries()) {
+      if (destroyedIds.has(lockedBy)) {
+        this.baseDropoffLocks.delete(baseId);
+      }
+    }
   }
 
   private advanceCollectorTimers(dt: number) {

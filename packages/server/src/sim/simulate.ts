@@ -147,6 +147,10 @@ const maybeFire = (
   stats: ShipStats,
   distToTarget: number,
 ) => {
+  const weaponMounts = Math.max(0, unit.weaponMounts ?? 0);
+  if (weaponMounts <= 0) {
+    return;
+  }
   if (distToTarget > stats.weaponRange) {
     return;
   }
@@ -154,7 +158,7 @@ const maybeFire = (
     return;
   }
   unit.weaponCooldownLeft = stats.weaponCooldown;
-  let remainingDamage = stats.weaponDamage;
+  let remainingDamage = stats.weaponDamage * weaponMounts;
   if (target.shields > 0) {
     const absorbed = Math.min(target.shields, remainingDamage);
     target.shields = Math.max(0, target.shields - absorbed);
