@@ -14,8 +14,11 @@ export class UnitSchema extends Schema {
   @type("number") orderX = 0;
   @type("number") orderZ = 0;
   @type("string") orderTargetId = "";
+  @type("string") harvestTargetId = "";
   @type("number") weaponCooldownLeft = 0;
   @type("string") unitType = "RESOURCE_COLLECTOR";
+  @type("number") cargo = 0;
+  @type("number") cargoCapacity = 25;
 }
 
 export class BaseSchema extends Schema {
@@ -32,6 +35,7 @@ export class ResourceNodeSchema extends Schema {
   @type("number") x = 0;
   @type("number") z = 0;
   @type("number") amount = 500;
+  @type("number") maxAmount = 500;
 }
 
 export class LobbyPlayerSchema extends Schema {
