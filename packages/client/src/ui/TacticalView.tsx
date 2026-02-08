@@ -60,6 +60,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [lastResourceClick, setLastResourceClick] = useState<{
+    id: string;
+    at: number;
+  } | null>(null);
   const [debugInfo, setDebugInfo] = useState({
     roomId: "n/a",
     sessionId: "n/a",
@@ -569,12 +573,20 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             fallbackUnitsRef.current.get(selection.id) ??
             null
           : null;
-      const isCollector =
-        !!selectedUnit &&
-        "unitType" in selectedUnit &&
-        selectedUnit.unitType === "RESOURCE_COLLECTOR";
-      if (room && selection?.id && isCollector && resource) {
+      console.log("[tactical] resource click", {
+        resourceId,
+        hasRoom: !!room,
+        selectedId: selection?.id ?? null,
+        resourceFound: !!resource,
+      });
+      setLastResourceClick({ id: resourceId, at: Date.now() });
+      if (room && selection?.id && resource) {
         setSelectedBaseId(null);
+        console.log("[tactical] harvest command", {
+          unitId: selection.id,
+          resourceId: resource.id,
+          unit: selectedUnit,
+        });
         room.send("command", {
           t: "HARVEST",
           unitIds: [selection.id],
@@ -631,6 +643,24 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
       : "RESOURCE_COLLECTOR";
+  const selectedUnitSource = selection?.id
+    ? unitsRef.current?.has(selection.id)
+      ? "state"
+      : fallbackUnitsRef.current.has(selection.id)
+        ? "fallback"
+        : "missing"
+    : "none";
+  const selectedUnitOrder =
+    selectedUnit && "orderType" in selectedUnit ? selectedUnit.orderType : "n/a";
+  const selectedUnitTarget =
+    selectedUnit && "orderTargetId" in selectedUnit
+      ? selectedUnit.orderTargetId
+      : "n/a";
+  const selectedUnitDestination =
+    selectedUnit && "orderX" in selectedUnit && "orderZ" in selectedUnit
+      ? `${selectedUnit.orderX.toFixed(1)}, ${selectedUnit.orderZ.toFixed(1)}`
+      : "n/a";
+  const resourceCount = resourcesRef.current?.size ?? 0;
 
   return (
     <div className="tactical-view">
@@ -659,7 +689,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           </p>
           {selectedUnit ? (
             <p className="hud-copy">
-              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} · Owner{" "}
+              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} ·
+              Order {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
+              {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
               {selectedUnit.owner}.
             </p>
           ) : (
@@ -714,6 +746,14 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             Connected: {debugInfo.hasRoom ? "yes" : "no"} · Units ready:{" "}
             {debugInfo.hasUnits ? "yes" : "no"} · Unit count:{" "}
             {debugInfo.unitTotal}
+          </p>
+          <p className="hud-copy">
+            Resources: {resourceCount} · Last resource click:{" "}
+            {lastResourceClick
+              ? `${lastResourceClick.id} (${new Date(
+                  lastResourceClick.at,
+                ).toLocaleTimeString()})`
+              : "n/a"}
           </p>
         </div>
       </div>

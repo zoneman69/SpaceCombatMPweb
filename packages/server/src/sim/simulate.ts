@@ -69,6 +69,10 @@ const updateUnit = (
       unit.z = desiredZ;
       unit.vx = 0;
       unit.vz = 0;
+      if (unit.orderType === "MOVE") {
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
+      }
     }
   }
 
