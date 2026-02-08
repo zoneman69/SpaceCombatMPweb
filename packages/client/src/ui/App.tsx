@@ -99,16 +99,44 @@ export default function App() {
         room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
 
+      const addLocalHostPlayer = (
+        nextRooms: LobbyRoom[],
+        sessionId: string | null | undefined,
+      ) => {
+        if (!sessionId) {
+          return nextRooms;
+        }
+        return nextRooms.map((roomItem) => {
+          if (
+            roomItem.hostId === sessionId &&
+            roomItem.players.length === 0
+          ) {
+            return {
+              ...roomItem,
+              players: [
+                {
+                  id: sessionId,
+                  name: `Pilot-${sessionId.slice(0, 4)}`,
+                  ready: false,
+                },
+              ],
+            };
+          }
+          return roomItem;
+        });
+      };
+
       const applyLobbyRooms = (nextRooms: LobbyRoom[]) => {
-        setRooms(nextRooms);
+        const hydratedRooms = addLocalHostPlayer(nextRooms, room.sessionId);
+        setRooms(hydratedRooms);
         if (!room.sessionId) {
           return;
         }
         const currentRoom =
-          nextRooms.find((lobby) =>
+          hydratedRooms.find((lobby) =>
             lobby.players.some((player) => player.id === room.sessionId),
           ) ??
-          nextRooms.find((lobby) => lobby.hostId === room.sessionId);
+          hydratedRooms.find((lobby) => lobby.hostId === room.sessionId);
         if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
           setActiveRoomId(currentRoom.id);
         }
@@ -122,37 +150,27 @@ export default function App() {
       };
 
       const syncLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
-        const nextRooms = (
+        const nextRooms = addLocalHostPlayer(
+          (
           Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
-        ).map(
-          (roomItem) => {
-            const players = (
-              Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
-            ).map((player) => ({
-              id: player.id,
-              name: player.name,
-              ready: player.ready,
-            }));
-            if (
-              players.length === 0 &&
-              room.sessionId &&
-              roomItem.hostId === room.sessionId
-            ) {
-              players.push({
-                id: room.sessionId,
-                name: `Pilot-${room.sessionId.slice(0, 4)}`,
-                ready: false,
-              });
-            }
-            return {
-              id: roomItem.id,
-              name: roomItem.name,
-              mode: roomItem.mode,
-              host: roomItem.hostName,
-              hostId: roomItem.hostId,
-              players,
-            };
-          },
+        ).map((roomItem) => {
+          const players = (
+            Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
+          ).map((player) => ({
+            id: player.id,
+            name: player.name,
+            ready: player.ready,
+          }));
+          return {
+            id: roomItem.id,
+            name: roomItem.name,
+            mode: roomItem.mode,
+            host: roomItem.hostName,
+            hostId: roomItem.hostId,
+            players,
+          };
+        }),
+          room.sessionId,
         );
         applyLobbyRooms(nextRooms);
       };
