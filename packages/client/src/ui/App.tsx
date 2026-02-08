@@ -60,7 +60,32 @@ export default function App() {
         ws: WS_URL,
         colyseus: colyseusPkg.version,
       });
-      const room = await colyseus.joinOrCreate<SpaceState>("space");
+      const maxAttempts = 3;
+      let room: Room<SpaceState> | null = null;
+      let attempt = 0;
+
+      while (!room && attempt < maxAttempts) {
+        attempt += 1;
+        try {
+          room = await colyseus.joinOrCreate<SpaceState>("space");
+        } catch (error: any) {
+          const message = `${error?.message || error}`;
+          const isSeatExpired = message.includes("seat reservation expired");
+          if (!isSeatExpired || attempt >= maxAttempts) {
+            throw error;
+          }
+          const waitMs = 500 * attempt;
+          console.warn(
+            `[lobby] seat reservation expired; retrying in ${waitMs}ms (attempt ${attempt}/${maxAttempts})`,
+          );
+          setStatus(`reconnecting (attempt ${attempt + 1}/${maxAttempts})...`);
+          await new Promise((resolve) => setTimeout(resolve, waitMs));
+        }
+      }
+
+      if (!room) {
+        throw new Error("Failed to join or create a room.");
+      }
       roomRef.current = room;
       setRoom(room);
       setStatus(`connected ✅ roomId=${room.roomId ?? "unknown"}`);
