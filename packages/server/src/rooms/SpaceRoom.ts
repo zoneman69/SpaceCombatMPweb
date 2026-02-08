@@ -534,6 +534,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       id: room.id,
       name: room.name,
       mode: room.mode,
+      hostId: room.hostId,
       host: room.hostName,
       players: Array.from(room.players.values()).map((player) => ({
         id: player.id,
