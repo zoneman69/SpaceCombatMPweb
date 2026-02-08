@@ -42,6 +42,8 @@ const RESOURCE_COLOR = new THREE.Color("#34d399");
 const PLANE_SIZE = 360;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
+const RESOURCE_SCALE_MIN = 0.5;
+const RESOURCE_SCALE_MAX = 1.6;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -205,6 +207,15 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       baseMeshesRef.current.delete(baseId);
     };
 
+    const getResourceScale = (resource: ResourceNodeSchema) => {
+      const maxAmount = resource.maxAmount || 1;
+      const ratio = Math.min(1, Math.max(0, resource.amount / maxAmount));
+      return (
+        RESOURCE_SCALE_MIN +
+        (RESOURCE_SCALE_MAX - RESOURCE_SCALE_MIN) * ratio
+      );
+    };
+
     const ensureResourceMesh = (resource: ResourceNodeSchema) => {
       if (resourceMeshesRef.current.has(resource.id)) {
         return;
@@ -215,6 +226,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       });
       const mesh = new THREE.Mesh(resourceGeometry.clone(), material);
       mesh.position.set(resource.x, 0, resource.z);
+      const scale = getResourceScale(resource);
+      mesh.scale.set(scale, scale, scale);
       mesh.userData = { id: resource.id };
       scene.add(mesh);
       resourceMeshesRef.current.set(resource.id, { mesh });
@@ -424,6 +437,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           return;
         }
         render.mesh.position.set(resource.x, 0, resource.z);
+        const scale = getResourceScale(resource);
+        render.mesh.scale.set(scale, scale, scale);
       });
       renderer.render(scene, camera);
       requestRef.current = requestAnimationFrame(animate);
@@ -661,6 +676,12 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "orderX" in selectedUnit && "orderZ" in selectedUnit
       ? `${selectedUnit.orderX.toFixed(1)}, ${selectedUnit.orderZ.toFixed(1)}`
       : "n/a";
+  const selectedUnitCargo =
+    selectedUnit && "cargo" in selectedUnit ? selectedUnit.cargo : 0;
+  const selectedUnitCargoCapacity =
+    selectedUnit && "cargoCapacity" in selectedUnit
+      ? selectedUnit.cargoCapacity
+      : 0;
   const resourceCount = resourcesRef.current?.size ?? 0;
 
   return (
@@ -690,10 +711,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           </p>
           {selectedUnit ? (
             <p className="hud-copy">
-              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} ·
-              Order {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
-              {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
-              {selectedUnit.owner}.
+              Hull {Math.floor(selectedHp)}/100 · Cargo{" "}
+              {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
+              Type {selectedUnitType} · Order {selectedUnitOrder} · Target{" "}
+              {selectedUnitTarget} · Dest {selectedUnitDestination} · Source{" "}
+              {selectedUnitSource} · Owner {selectedUnit.owner}.
             </p>
           ) : (
             <p className="hud-copy">
