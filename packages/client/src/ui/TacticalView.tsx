@@ -215,6 +215,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       });
       const mesh = new THREE.Mesh(resourceGeometry.clone(), material);
       mesh.position.set(resource.x, 0, resource.z);
+      mesh.userData = { id: resource.id };
       scene.add(mesh);
       resourceMeshesRef.current.set(resource.id, { mesh });
     };
