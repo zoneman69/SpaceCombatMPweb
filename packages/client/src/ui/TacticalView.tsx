@@ -569,11 +569,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             fallbackUnitsRef.current.get(selection.id) ??
             null
           : null;
-      const isCollector =
-        !!selectedUnit &&
-        "unitType" in selectedUnit &&
-        selectedUnit.unitType === "RESOURCE_COLLECTOR";
-      if (room && selection?.id && isCollector && resource) {
+      if (room && selection?.id && resource) {
         setSelectedBaseId(null);
         room.send("command", {
           t: "HARVEST",
