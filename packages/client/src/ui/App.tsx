@@ -40,6 +40,7 @@ export default function App() {
   const roomRef = useRef<any>(null);
   const lobbyRoomsRef = useRef<SpaceState["lobbyRooms"] | null>(null);
   const activeRoomIdRef = useRef<string | null>(null);
+  const roomsRef = useRef<LobbyRoom[]>([]);
   const boundLobbyRoomPlayersRef = useRef<WeakSet<LobbyRoomSchema>>(
     new WeakSet(),
   );
@@ -47,6 +48,10 @@ export default function App() {
   useEffect(() => {
     activeRoomIdRef.current = activeRoomId;
   }, [activeRoomId]);
+
+  useEffect(() => {
+    roomsRef.current = rooms;
+  }, [rooms]);
 
   useEffect(() => {
     void connect();
@@ -99,35 +104,48 @@ export default function App() {
         room.send("lobby:setName", `Pilot-${room.sessionId.slice(0, 4)}`);
       }
 
-      const addLocalHostPlayer = (
+      const buildLobbyRooms = (
         nextRooms: LobbyRoom[],
         sessionId: string | null | undefined,
-      ) => {
-        if (!sessionId) {
-          return nextRooms;
-        }
-        return nextRooms.map((roomItem) => {
+        previousRooms: LobbyRoom[],
+      ) =>
+        nextRooms.map((roomItem) => {
+          const previousRoom = previousRooms.find(
+            (room) => room.id === roomItem.id,
+          );
+          const mergedRoom: LobbyRoom = {
+            id: roomItem.id,
+            name: roomItem.name || previousRoom?.name || "",
+            mode: roomItem.mode || previousRoom?.mode || "",
+            host: roomItem.host || previousRoom?.host || "",
+            hostId: roomItem.hostId || previousRoom?.hostId,
+            players:
+              roomItem.players.length > 0
+                ? roomItem.players
+                : previousRoom?.players ?? [],
+          };
           if (
-            roomItem.hostId === sessionId &&
-            roomItem.players.length === 0
+            sessionId &&
+            mergedRoom.hostId === sessionId &&
+            mergedRoom.players.length === 0
           ) {
-            return {
-              ...roomItem,
-              players: [
-                {
-                  id: sessionId,
-                  name: `Pilot-${sessionId.slice(0, 4)}`,
-                  ready: false,
-                },
-              ],
-            };
+            mergedRoom.players = [
+              {
+                id: sessionId,
+                name: `Pilot-${sessionId.slice(0, 4)}`,
+                ready: false,
+              },
+            ];
           }
-          return roomItem;
+          return mergedRoom;
         });
-      };
 
       const applyLobbyRooms = (nextRooms: LobbyRoom[]) => {
-        const hydratedRooms = addLocalHostPlayer(nextRooms, room.sessionId);
+        const hydratedRooms = buildLobbyRooms(
+          nextRooms,
+          room.sessionId,
+          roomsRef.current,
+        );
         setRooms(hydratedRooms);
         if (!room.sessionId) {
           return;
@@ -150,27 +168,28 @@ export default function App() {
       };
 
       const syncLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
-        const nextRooms = addLocalHostPlayer(
+        const nextRooms = buildLobbyRooms(
           (
-          Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
-        ).map((roomItem) => {
-          const players = (
-            Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
-          ).map((player) => ({
-            id: player.id,
-            name: player.name,
-            ready: player.ready,
-          }));
-          return {
-            id: roomItem.id,
-            name: roomItem.name,
-            mode: roomItem.mode,
-            host: roomItem.hostName,
-            hostId: roomItem.hostId,
-            players,
-          };
-        }),
+            Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
+          ).map((roomItem) => {
+            const players = (
+              Array.from(roomItem.players.values()) as LobbyPlayerSchema[]
+            ).map((player) => ({
+              id: player.id,
+              name: player.name,
+              ready: player.ready,
+            }));
+            return {
+              id: roomItem.id,
+              name: roomItem.name,
+              mode: roomItem.mode,
+              host: roomItem.hostName,
+              hostId: roomItem.hostId,
+              players,
+            };
+          }),
           room.sessionId,
+          roomsRef.current,
         );
         applyLobbyRooms(nextRooms);
       };
