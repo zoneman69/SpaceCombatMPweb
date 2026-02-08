@@ -57,6 +57,9 @@ const RESOURCE_COLLECTOR_COST = 100;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
+const FOG_UNIT_VISION_RADIUS = 160;
+const FOG_BASE_VISION_RADIUS = 220;
+const FOG_VISIBILITY_EPSILON = 0.01;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +75,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
   const selectionRef = useRef<Selection>(null);
+  const selectedBaseIdRef = useRef<string | null>(null);
   const cameraModeRef = useRef<CameraMode>("squad");
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
@@ -159,6 +163,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   useEffect(() => {
     selectionRef.current = selection;
   }, [selection]);
+
+  useEffect(() => {
+    selectedBaseIdRef.current = selectedBaseId;
+  }, [selectedBaseId]);
 
   useEffect(() => {
     if (!room) {
@@ -483,6 +491,20 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     const cameraDesiredTarget = cameraDesiredTargetRef.current;
     const cameraPosition = new THREE.Vector3(0, CAMERA_HEIGHT, CAMERA_DISTANCE);
     const cameraOffset = new THREE.Vector3();
+    const fogSources: Array<{ x: number; z: number; radius: number }> = [];
+    const isVisibleInFog = (x: number, z: number) => {
+      if (fogSources.length === 0) {
+        return true;
+      }
+      for (const source of fogSources) {
+        const dx = x - source.x;
+        const dz = z - source.z;
+        if (dx * dx + dz * dz <= source.radius * source.radius) {
+          return true;
+        }
+      }
+      return false;
+    };
     const animate = () => {
       const delta = clock.getDelta();
       const units = unitsRef.current;
@@ -525,6 +547,77 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         const scale = getResourceScale(resource);
         render.mesh.scale.set(scale, scale, scale);
       });
+
+      fogSources.length = 0;
+      const localOwner = localSessionIdRef.current;
+      if (localOwner) {
+        (unitsRef.current ?? fallbackUnitsRef.current).forEach((unit) => {
+          if (unit.owner !== localOwner) {
+            return;
+          }
+          fogSources.push({
+            x: unit.x,
+            z: unit.z,
+            radius: FOG_UNIT_VISION_RADIUS,
+          });
+        });
+        basesRef.current?.forEach((base) => {
+          if (base.owner !== localOwner) {
+            return;
+          }
+          fogSources.push({
+            x: base.x,
+            z: base.z,
+            radius: FOG_BASE_VISION_RADIUS,
+          });
+        });
+      }
+
+      meshesRef.current.forEach((render, unitId) => {
+        const unit =
+          unitsRef.current?.get(unitId) ??
+          fallbackUnitsRef.current.get(unitId);
+        if (!unit) {
+          return;
+        }
+        const isVisible =
+          render.owner === localOwner ||
+          isVisibleInFog(unit.x + FOG_VISIBILITY_EPSILON, unit.z);
+        render.mesh.visible = isVisible;
+      });
+      baseMeshesRef.current.forEach((render, baseId) => {
+        const base = basesRef.current?.get(baseId);
+        if (!base) {
+          return;
+        }
+        const isVisible =
+          base.owner === localOwner || isVisibleInFog(base.x, base.z);
+        render.mesh.visible = isVisible;
+      });
+      resourceMeshesRef.current.forEach((render, resourceId) => {
+        const resource = resourcesRef.current?.get(resourceId);
+        if (!resource) {
+          return;
+        }
+        render.mesh.visible = isVisibleInFog(resource.x, resource.z);
+      });
+
+      const selectedId = selectionRef.current?.id;
+      if (selectedId) {
+        const selectedRender = meshesRef.current.get(selectedId);
+        if (selectedRender && !selectedRender.mesh.visible) {
+          setSelection(null);
+          setSelectedUnitIds([]);
+          setSelectedBaseId(null);
+        }
+      }
+      const baseSelectionId = selectedBaseIdRef.current;
+      if (baseSelectionId) {
+        const baseRender = baseMeshesRef.current.get(baseSelectionId);
+        if (baseRender && !baseRender.mesh.visible) {
+          setSelectedBaseId(null);
+        }
+      }
       const activeCameraMode = cameraModeRef.current;
       if (activeCameraMode !== "free") {
         const localOwner = localSessionIdRef.current;
