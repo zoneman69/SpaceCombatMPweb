@@ -32,9 +32,9 @@ const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
 const RESOURCE_NODE_MIN_AMOUNT = 120;
 const RESOURCE_NODE_MAX_AMOUNT = 420;
-const BASE_SPAWN_RADIUS = 160;
-const MAP_RESOURCE_SPACING = 60;
-const MAP_RESOURCE_RADIUS = 180;
+const BASE_SPAWN_RADIUS = 260;
+const MAP_RESOURCE_SPACING = 80;
+const MAP_RESOURCE_RADIUS = 320;
 const require = createRequire(import.meta.url);
 const colyseusPkg = require("colyseus/package.json");
 
