@@ -14,6 +14,7 @@ type TacticalViewProps = {
 };
 
 type Selection = { id: string } | null;
+type CameraMode = "squad" | "selected" | "free";
 
 type UnitRender = {
   mesh: THREE.Mesh;
@@ -44,10 +45,18 @@ const GRID_DIVISIONS = 36;
 const CAMERA_HEIGHT = 190;
 const CAMERA_DISTANCE = 300;
 const CAMERA_LERP_SPEED = 2.5;
+const CAMERA_ROTATE_SPEED = 0.005;
+const CAMERA_PAN_SPEED = 0.9;
+const CAMERA_ZOOM_SPEED = 0.25;
+const CAMERA_PITCH_MIN = 0.2;
+const CAMERA_PITCH_MAX = 1.25;
+const CAMERA_RADIUS_MIN = 120;
+const CAMERA_RADIUS_MAX = 620;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
+const SELECTION_DRAG_THRESHOLD = 6;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -62,10 +71,53 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const resourceMeshesRef = useRef<Map<string, MapRender>>(new Map());
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
+  const selectionRef = useRef<Selection>(null);
+  const cameraModeRef = useRef<CameraMode>("squad");
+  const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
+  const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
+  const cameraYawRef = useRef(0);
+  const cameraPitchRef = useRef(
+    Math.atan2(CAMERA_HEIGHT, CAMERA_DISTANCE),
+  );
+  const cameraRadiusRef = useRef(
+    Math.sqrt(CAMERA_HEIGHT ** 2 + CAMERA_DISTANCE ** 2),
+  );
+  const dragStateRef = useRef<{
+    mode: "select" | "pan" | "rotate" | null;
+    startX: number;
+    startY: number;
+    lastX: number;
+    lastY: number;
+    active: boolean;
+    moved: boolean;
+  }>({
+    mode: null,
+    startX: 0,
+    startY: 0,
+    lastX: 0,
+    lastY: 0,
+    active: false,
+    moved: false,
+  });
   const [selection, setSelection] = useState<Selection>(null);
+  const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
   const [selectedHp, setSelectedHp] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [cameraMode, setCameraMode] = useState<CameraMode>("squad");
+  const [selectionBox, setSelectionBox] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+    visible: boolean;
+  }>({
+    left: 0,
+    top: 0,
+    width: 0,
+    height: 0,
+    visible: false,
+  });
   const [lastResourceClick, setLastResourceClick] = useState<{
     id: string;
     at: number;
@@ -88,6 +140,14 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
   }, [localSessionId]);
+
+  useEffect(() => {
+    cameraModeRef.current = cameraMode;
+  }, [cameraMode]);
+
+  useEffect(() => {
+    selectionRef.current = selection;
+  }, [selection]);
 
   useEffect(() => {
     if (!room) {
@@ -280,6 +340,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         console.log("[tactical] unit removed", { id: unit.id });
         removeUnitMesh(unit.id);
         setSelection((prev) => (prev?.id === unit.id ? null : prev));
+        setSelectedUnitIds((prev) => prev.filter((id) => id !== unit.id));
         setUnitCount((prev) => Math.max(0, prev - 1));
       });
     };
@@ -407,9 +468,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     resizeObserver.observe(container);
 
     const clock = new THREE.Clock();
-    const cameraTarget = new THREE.Vector3(0, 0, 0);
-    const cameraDesiredTarget = new THREE.Vector3(0, 0, 0);
+    const cameraTarget = cameraTargetRef.current;
+    const cameraDesiredTarget = cameraDesiredTargetRef.current;
     const cameraPosition = new THREE.Vector3(0, CAMERA_HEIGHT, CAMERA_DISTANCE);
+    const cameraOffset = new THREE.Vector3();
     const animate = () => {
       const delta = clock.getDelta();
       const units = unitsRef.current;
@@ -452,47 +514,70 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         const scale = getResourceScale(resource);
         render.mesh.scale.set(scale, scale, scale);
       });
-      const localOwner = localSessionIdRef.current;
-      if (localOwner) {
-        let centerX = 0;
-        let centerZ = 0;
-        let count = 0;
-        unitsRef.current?.forEach((unit) => {
-          if (unit.owner !== localOwner) {
-            return;
+      const activeCameraMode = cameraModeRef.current;
+      if (activeCameraMode !== "free") {
+        const localOwner = localSessionIdRef.current;
+        let targetFound = false;
+        if (activeCameraMode === "selected") {
+          const selectedId = selectionRef.current?.id;
+          const selectedUnit =
+            selectedId &&
+            (unitsRef.current?.get(selectedId) ??
+              fallbackUnitsRef.current.get(selectedId));
+          if (selectedUnit) {
+            cameraDesiredTarget.set(selectedUnit.x, 0, selectedUnit.z);
+            targetFound = true;
           }
-          centerX += unit.x;
-          centerZ += unit.z;
-          count += 1;
-        });
-        if (count === 0) {
-          basesRef.current?.forEach((base) => {
-            if (base.owner !== localOwner) {
+        }
+        if (!targetFound && localOwner) {
+          let centerX = 0;
+          let centerZ = 0;
+          let count = 0;
+          unitsRef.current?.forEach((unit) => {
+            if (unit.owner !== localOwner) {
               return;
             }
-            centerX += base.x;
-            centerZ += base.z;
+            centerX += unit.x;
+            centerZ += unit.z;
             count += 1;
           });
+          if (count === 0) {
+            basesRef.current?.forEach((base) => {
+              if (base.owner !== localOwner) {
+                return;
+              }
+              centerX += base.x;
+              centerZ += base.z;
+              count += 1;
+            });
+          }
+          if (count > 0) {
+            cameraDesiredTarget.set(centerX / count, 0, centerZ / count);
+            targetFound = true;
+          }
         }
-        if (count > 0) {
-          cameraDesiredTarget.set(centerX / count, 0, centerZ / count);
+        if (targetFound) {
           cameraTarget.lerp(
             cameraDesiredTarget,
             Math.min(1, delta * CAMERA_LERP_SPEED),
           );
-          cameraPosition.set(
-            cameraTarget.x,
-            CAMERA_HEIGHT,
-            cameraTarget.z + CAMERA_DISTANCE,
-          );
-          camera.position.lerp(
-            cameraPosition,
-            Math.min(1, delta * CAMERA_LERP_SPEED),
-          );
-          camera.lookAt(cameraTarget);
         }
       }
+
+      const yaw = cameraYawRef.current;
+      const pitch = cameraPitchRef.current;
+      const radius = cameraRadiusRef.current;
+      cameraOffset.set(
+        Math.sin(yaw) * Math.cos(pitch) * radius,
+        Math.sin(pitch) * radius,
+        Math.cos(yaw) * Math.cos(pitch) * radius,
+      );
+      cameraPosition.copy(cameraTarget).add(cameraOffset);
+      camera.position.lerp(
+        cameraPosition,
+        Math.min(1, delta * CAMERA_LERP_SPEED),
+      );
+      camera.lookAt(cameraTarget);
       renderer.render(scene, camera);
       requestRef.current = requestAnimationFrame(animate);
     };
@@ -535,9 +620,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
   useEffect(() => {
     const selectedId = selection?.id;
+    const selectedSet = new Set(selectedUnitIds);
     meshesRef.current.forEach((render, unitId) => {
       const material = render.mesh.material as THREE.MeshStandardMaterial;
-      if (selectedId && unitId === selectedId) {
+      if (selectedSet.has(unitId)) {
         material.color = UNIT_COLORS.selected.clone();
         return;
       }
@@ -557,7 +643,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     setSelectedHp(
       selectedUnit && "hp" in selectedUnit ? selectedUnit.hp : 100,
     );
-  }, [localSessionId, selection]);
+  }, [localSessionId, selection, selectedUnitIds]);
 
   useEffect(() => {
     if (!selection?.id) {
@@ -586,7 +672,211 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     };
   };
 
+  const updateSelectionFromBox = (box: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  }) => {
+    if (!rendererRef.current || !cameraRef.current) {
+      return;
+    }
+    const camera = cameraRef.current;
+    const bounds = rendererRef.current.domElement.getBoundingClientRect();
+    const left = Math.min(box.left, box.left + box.width);
+    const right = Math.max(box.left, box.left + box.width);
+    const top = Math.min(box.top, box.top + box.height);
+    const bottom = Math.max(box.top, box.top + box.height);
+    const selected: string[] = [];
+
+    meshesRef.current.forEach((render, unitId) => {
+      if (render.owner !== localSessionIdRef.current) {
+        return;
+      }
+      const position = render.mesh.position.clone().project(camera);
+      const screenX = ((position.x + 1) / 2) * bounds.width;
+      const screenY = ((-position.y + 1) / 2) * bounds.height;
+      if (
+        screenX >= left &&
+        screenX <= right &&
+        screenY >= top &&
+        screenY <= bottom
+      ) {
+        selected.push(unitId);
+      }
+    });
+
+    setSelectedUnitIds(selected);
+    setSelection(selected.length > 0 ? { id: selected[0] } : null);
+    setSelectedBaseId(null);
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!rendererRef.current) {
+      return;
+    }
+    if (event.button === 2) {
+      dragStateRef.current = {
+        mode: "rotate",
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        active: true,
+        moved: false,
+      };
+      setCameraMode("free");
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button === 1) {
+      dragStateRef.current = {
+        mode: "pan",
+        startX: event.clientX,
+        startY: event.clientY,
+        lastX: event.clientX,
+        lastY: event.clientY,
+        active: true,
+        moved: false,
+      };
+      setCameraMode("free");
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
+    if (event.button !== 0) {
+      return;
+    }
+    const { x, y } = getCanvasCoords(event);
+    dragStateRef.current = {
+      mode: "select",
+      startX: x,
+      startY: y,
+      lastX: x,
+      lastY: y,
+      active: true,
+      moved: false,
+    };
+    setSelectionBox({
+      left: x,
+      top: y,
+      width: 0,
+      height: 0,
+      visible: true,
+    });
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStateRef.current.active || !rendererRef.current) {
+      return;
+    }
+    const state = dragStateRef.current;
+    if (state.mode === "select") {
+      const { x, y } = getCanvasCoords(event);
+      const deltaX = x - state.startX;
+      const deltaY = y - state.startY;
+      if (
+        Math.abs(deltaX) > SELECTION_DRAG_THRESHOLD ||
+        Math.abs(deltaY) > SELECTION_DRAG_THRESHOLD
+      ) {
+        state.moved = true;
+      }
+      state.lastX = x;
+      state.lastY = y;
+      setSelectionBox({
+        left: state.startX,
+        top: state.startY,
+        width: deltaX,
+        height: deltaY,
+        visible: true,
+      });
+      return;
+    }
+    if (!cameraRef.current) {
+      return;
+    }
+    const camera = cameraRef.current;
+    const deltaX = event.clientX - state.lastX;
+    const deltaY = event.clientY - state.lastY;
+    state.lastX = event.clientX;
+    state.lastY = event.clientY;
+    state.moved = true;
+    if (state.mode === "rotate") {
+      cameraYawRef.current -= deltaX * CAMERA_ROTATE_SPEED;
+      cameraPitchRef.current = Math.min(
+        CAMERA_PITCH_MAX,
+        Math.max(
+          CAMERA_PITCH_MIN,
+          cameraPitchRef.current - deltaY * CAMERA_ROTATE_SPEED,
+        ),
+      );
+      return;
+    }
+    if (state.mode === "pan") {
+      const bounds = rendererRef.current.domElement.getBoundingClientRect();
+      const panScale =
+        (cameraRadiusRef.current / Math.max(1, bounds.height)) *
+        CAMERA_PAN_SPEED;
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      const right = new THREE.Vector3();
+      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+      cameraTargetRef.current.addScaledVector(right, -deltaX * panScale);
+      cameraTargetRef.current.addScaledVector(forward, deltaY * panScale);
+    }
+  };
+
+  const handlePointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!dragStateRef.current.active) {
+      return;
+    }
+    handlePointerUp(event);
+  };
+
+  const handleWheel = (event: React.WheelEvent<HTMLDivElement>) => {
+    if (!rendererRef.current) {
+      return;
+    }
+    event.preventDefault();
+    const nextRadius =
+      cameraRadiusRef.current + event.deltaY * CAMERA_ZOOM_SPEED;
+    cameraRadiusRef.current = Math.min(
+      CAMERA_RADIUS_MAX,
+      Math.max(CAMERA_RADIUS_MIN, nextRadius),
+    );
+  };
+
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const dragState = dragStateRef.current;
+    if (dragState.active && dragState.mode === "select") {
+      const deltaX = dragState.lastX - dragState.startX;
+      const deltaY = dragState.lastY - dragState.startY;
+      if (
+        Math.abs(deltaX) > SELECTION_DRAG_THRESHOLD ||
+        Math.abs(deltaY) > SELECTION_DRAG_THRESHOLD
+      ) {
+        updateSelectionFromBox({
+          left: dragState.startX,
+          top: dragState.startY,
+          width: deltaX,
+          height: deltaY,
+        });
+        setSelectionBox((prev) => ({ ...prev, visible: false }));
+        dragStateRef.current.active = false;
+        dragStateRef.current.mode = null;
+        return;
+      }
+    }
+    if (dragState.active && dragState.mode !== "select" && dragState.moved) {
+      dragStateRef.current.active = false;
+      dragStateRef.current.mode = null;
+      return;
+    }
+    dragStateRef.current.active = false;
+    dragStateRef.current.mode = null;
+    setSelectionBox((prev) => ({ ...prev, visible: false }));
     if (!rendererRef.current || !cameraRef.current) {
       return;
     }
@@ -608,6 +898,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         setSelectedBaseId(null);
       }
       setSelection(null);
+      setSelectedUnitIds([]);
       return;
     }
 
@@ -621,9 +912,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
+        setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
       } else {
         setSelection(null);
+        setSelectedUnitIds([]);
         setSelectedBaseId(null);
       }
       return;
@@ -649,16 +942,16 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         resourceFound: !!resource,
       });
       setLastResourceClick({ id: resourceId, at: Date.now() });
-      if (room && selection?.id && resource) {
+      if (room && selectedUnitIds.length > 0 && resource) {
         setSelectedBaseId(null);
         console.log("[tactical] harvest command", {
-          unitId: selection.id,
+          unitIds: selectedUnitIds,
           resourceId: resource.id,
           unit: selectedUnit,
         });
         room.send("command", {
           t: "HARVEST",
-          unitIds: [selection.id],
+          unitIds: selectedUnitIds,
           resourceId: resource.id,
         });
         return;
@@ -670,17 +963,17 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       if (!room) {
         return;
       }
-      const unitIds = selection?.id ? [selection.id] : [];
-      if (unitIds.length > 0) {
+      if (selectedUnitIds.length > 0) {
         setSelectedBaseId(null);
         room.send("command", {
           t: "MOVE",
-          unitIds,
+          unitIds: selectedUnitIds,
           x: target.x,
           z: target.z,
         });
       } else {
         setSelection(null);
+        setSelectedUnitIds([]);
       }
     }
   };
@@ -690,6 +983,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       fallbackUnitsRef.current.get(selection.id) ??
       null
     : null;
+  const selectedUnitCount = selectedUnitIds.length;
   const selectedBase = selectedBaseId
     ? basesRef.current?.get(selectedBaseId) ?? null
     : null;
@@ -729,15 +1023,65 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       <div
         className="tactical-canvas"
         ref={containerRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-      ></div>
+        onPointerLeave={handlePointerLeave}
+        onWheel={handleWheel}
+        onContextMenu={(event) => event.preventDefault()}
+      >
+        {selectionBox.visible && (
+          <div
+            className="selection-box"
+            style={{
+              left: Math.min(
+                selectionBox.left,
+                selectionBox.left + selectionBox.width,
+              ),
+              top: Math.min(
+                selectionBox.top,
+                selectionBox.top + selectionBox.height,
+              ),
+              width: Math.abs(selectionBox.width),
+              height: Math.abs(selectionBox.height),
+            }}
+          />
+        )}
+      </div>
       <div className="tactical-hud">
         <div>
           <p className="hud-title">Squad Tactical View</p>
           <p className="hud-copy">
-            Select your ships to issue orders. Click the field to move the
-            selected unit. Enemy movement syncs live from the squad channel.
+            Drag to box-select multiple ships, then click the field to issue
+            group orders. Use right-drag to rotate, middle-drag to pan, and
+            scroll to zoom the camera.
           </p>
+          <div className="hud-actions">
+            <button
+              className="hud-button"
+              type="button"
+              onClick={() => setCameraMode("squad")}
+              disabled={cameraMode === "squad"}
+            >
+              Track squad
+            </button>
+            <button
+              className="hud-button"
+              type="button"
+              onClick={() => setCameraMode("selected")}
+              disabled={cameraMode === "selected" || !selection?.id}
+            >
+              Track selected
+            </button>
+            <button
+              className="hud-button"
+              type="button"
+              onClick={() => setCameraMode("free")}
+              disabled={cameraMode === "free"}
+            >
+              Free camera
+            </button>
+          </div>
         </div>
         <div className="hud-status">
           <span>Active ships</span>
@@ -751,6 +1095,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           </p>
           {selectedUnit ? (
             <p className="hud-copy">
+              {selectedUnitCount > 1
+                ? `${selectedUnitCount} units selected · `
+                : ""}
               Hull {Math.floor(selectedHp)}/100 · Cargo{" "}
               {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
               Type {selectedUnitType} · Order {selectedUnitOrder} · Target{" "}
