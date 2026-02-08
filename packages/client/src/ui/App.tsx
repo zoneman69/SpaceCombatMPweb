@@ -54,6 +54,14 @@ export default function App() {
   }, [rooms]);
 
   useEffect(() => {
+    console.log("[lobby] rooms state updated", {
+      activeRoomId,
+      roomIds: rooms.map((roomItem) => roomItem.id),
+      activeRoom: rooms.find((roomItem) => roomItem.id === activeRoomId),
+    });
+  }, [rooms, activeRoomId]);
+
+  useEffect(() => {
     void connect();
     return () => roomRef.current?.leave?.();
   }, []);
@@ -169,6 +177,10 @@ export default function App() {
           ) ??
           hydratedRooms.find((lobby) => lobby.hostId === room.sessionId);
         if (currentRoom && currentRoom.id !== activeRoomIdRef.current) {
+          console.log("[lobby] setActiveRoomId", {
+            nextId: currentRoom.id,
+            previousId: activeRoomIdRef.current,
+          });
           setActiveRoomId(currentRoom.id);
         }
         if (
@@ -176,6 +188,9 @@ export default function App() {
           activeRoomIdRef.current &&
           nextRooms.every((r) => r.id !== activeRoomIdRef.current)
         ) {
+          console.log("[lobby] clearActiveRoomId", {
+            previousId: activeRoomIdRef.current,
+          });
           setActiveRoomId(null);
         }
       };
@@ -261,6 +276,10 @@ export default function App() {
             ? payload.roomId
             : null;
         if (roomId && roomId !== activeRoomIdRef.current) {
+          console.log("[lobby] joinedRoom message", {
+            roomId,
+            previousId: activeRoomIdRef.current,
+          });
           setActiveRoomId(roomId);
         }
       });
