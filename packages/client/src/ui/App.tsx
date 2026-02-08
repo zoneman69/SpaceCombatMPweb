@@ -63,7 +63,21 @@ export default function App() {
 
   useEffect(() => {
     void connect();
-    return () => roomRef.current?.leave?.();
+    return () => {
+      const activeRoom = roomRef.current;
+      roomRef.current = null;
+      lobbyRoomsRef.current = null;
+      activeRoomIdRef.current = null;
+      boundLobbyRoomPlayersRef.current = new WeakSet();
+      setRoom(null);
+      setRooms([]);
+      setActiveRoomId(null);
+      setCountdown(null);
+      setHasConnected(false);
+      setLocalSessionId(null);
+      setStatus("idle");
+      activeRoom?.leave?.();
+    };
   }, []);
 
   const connect = async () => {
@@ -299,6 +313,23 @@ export default function App() {
         }
       });
 
+      room.onLeave((code) => {
+        console.warn("[lobby] room left", { code });
+        if (roomRef.current !== room) {
+          return;
+        }
+        roomRef.current = null;
+        lobbyRoomsRef.current = null;
+        boundLobbyRoomPlayersRef.current = new WeakSet();
+        setRoom(null);
+        setRooms([]);
+        setActiveRoomId(null);
+        setCountdown(null);
+        setHasConnected(false);
+        setLocalSessionId(null);
+        setStatus("disconnected");
+      });
+
       room.onStateChange((state) => {
         if (state?.lobbyRooms) {
           bindLobbyRooms(state.lobbyRooms as SpaceState["lobbyRooms"]);
@@ -337,7 +368,7 @@ export default function App() {
       setCountdown(null);
       return;
     }
-    setCountdown(10);
+    setCountdown(3);
     const interval = window.setInterval(() => {
       setCountdown((prev) => {
         if (prev === null) {
