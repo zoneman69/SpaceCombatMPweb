@@ -141,11 +141,23 @@ export default function App() {
         });
 
       const applyLobbyRooms = (nextRooms: LobbyRoom[]) => {
+        console.log("[lobby] applyLobbyRooms", {
+          incomingCount: nextRooms.length,
+          activeRoomId: activeRoomIdRef.current,
+          sessionId: room.sessionId ?? "n/a",
+        });
         const hydratedRooms = buildLobbyRooms(
           nextRooms,
           room.sessionId,
           roomsRef.current,
         );
+        console.log("[lobby] hydratedRooms", {
+          roomIds: hydratedRooms.map((room) => room.id),
+          activeRoomId: activeRoomIdRef.current,
+          matchingRoom: hydratedRooms.find(
+            (roomItem) => roomItem.id === activeRoomIdRef.current,
+          ),
+        });
         roomsRef.current = hydratedRooms;
         setRooms(hydratedRooms);
         if (!room.sessionId) {
@@ -169,6 +181,10 @@ export default function App() {
       };
 
       const syncLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
+        console.log("[lobby] syncLobbyRooms", {
+          size: lobbyRooms.size,
+          activeRoomId: activeRoomIdRef.current,
+        });
         const nextRooms = buildLobbyRooms(
           (
             Array.from(lobbyRooms.values()) as LobbyRoomSchema[]
@@ -212,6 +228,10 @@ export default function App() {
         if (lobbyRoomsRef.current === lobbyRooms) {
           return;
         }
+        console.log("[lobby] bindLobbyRooms", {
+          size: lobbyRooms.size,
+          activeRoomId: activeRoomIdRef.current,
+        });
         lobbyRoomsRef.current = lobbyRooms;
         syncLobbyRooms(lobbyRooms);
         lobbyRooms.onAdd((roomItem) => {

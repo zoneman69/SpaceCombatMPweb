@@ -120,6 +120,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         room.hostName = this.getPlayerName(client.sessionId);
         this.state.lobbyRooms.set(room.id, room);
         this.addPlayerToLobbyRoom(room, client.sessionId);
+        console.log("[lobby] createRoom complete", {
+          roomId: room.id,
+          hostId: room.hostId,
+          players: room.players.size,
+        });
         client.send("lobby:joinedRoom", { roomId: room.id });
         this.emitLobbyRooms();
       },
@@ -142,6 +147,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         }
         this.removePlayerFromLobbyRoom(client.sessionId);
         this.addPlayerToLobbyRoom(room, client.sessionId);
+        console.log("[lobby] joinRoom complete", {
+          roomId: room.id,
+          sessionId: client.sessionId,
+          players: room.players.size,
+        });
         client.send("lobby:joinedRoom", { roomId: room.id });
         this.emitLobbyRooms();
       },
@@ -502,6 +512,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private removePlayerFromLobbyRoom(sessionId: string) {
     const roomId = this.playerRoomIds.get(sessionId);
+    console.log("[lobby] removePlayerFromLobbyRoom", {
+      sessionId,
+      roomId: roomId ?? "n/a",
+    });
     if (!roomId) {
       return;
     }
@@ -512,6 +526,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     room.players.delete(sessionId);
     this.playerRoomIds.delete(sessionId);
+    console.log("[lobby] removed player from room", {
+      roomId,
+      remainingPlayers: room.players.size,
+    });
     if (room.players.size === 0) {
       this.state.lobbyRooms.delete(roomId);
       return;
