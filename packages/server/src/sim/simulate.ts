@@ -37,7 +37,9 @@ const updateUnit = (
 ) => {
   const hasTarget = unit.orderType === "ATTACK" && unit.orderTargetId;
   const hasMoveTarget =
-    unit.orderType === "MOVE" || unit.orderType === "ATTACK_MOVE";
+    unit.orderType === "MOVE" ||
+    unit.orderType === "ATTACK_MOVE" ||
+    unit.orderType === "HARVEST";
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
