@@ -617,20 +617,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       if (!room) {
         return;
       }
-      const ownedUnitIds: string[] = [];
-      unitsRef.current?.forEach((unit) => {
-        if (unit.owner === localSessionId) {
-          ownedUnitIds.push(unit.id);
-        }
-      });
-      if (ownedUnitIds.length === 0) {
-        fallbackUnitsRef.current.forEach((unit) => {
-          if (unit.owner === localSessionId) {
-            ownedUnitIds.push(unit.id);
-          }
-        });
-      }
-      const unitIds = selection?.id ? [selection.id] : ownedUnitIds;
+      const unitIds = selection?.id ? [selection.id] : [];
       if (unitIds.length > 0) {
         setSelectedBaseId(null);
         room.send("command", {
