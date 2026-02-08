@@ -1063,6 +1063,21 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         setSelection({ id: hitId });
         setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
+      } else if (room && selectedUnitIds.length > 0) {
+        const weaponUnitIds = selectedUnitIds.filter((unitId) => {
+          const unit =
+            unitsRef.current?.get(unitId) ??
+            fallbackUnitsRef.current.get(unitId);
+          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+        });
+        if (weaponUnitIds.length > 0) {
+          setSelectedBaseId(null);
+          room.send("command", {
+            t: "ATTACK",
+            unitIds: weaponUnitIds,
+            targetId: hitId,
+          });
+        }
       } else {
         setSelection(null);
         setSelectedUnitIds([]);
