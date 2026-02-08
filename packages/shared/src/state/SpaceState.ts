@@ -1,4 +1,5 @@
 import { Schema, type, MapSchema } from "@colyseus/schema";
+import type { UnitType } from "../types";
 
 export class UnitSchema extends Schema {
   @type("string") id = "";
@@ -16,9 +17,11 @@ export class UnitSchema extends Schema {
   @type("string") orderTargetId = "";
   @type("string") harvestTargetId = "";
   @type("number") weaponCooldownLeft = 0;
-  @type("string") unitType = "RESOURCE_COLLECTOR";
+  @type("string") unitType: UnitType = "RESOURCE_COLLECTOR";
   @type("number") cargo = 0;
   @type("number") cargoCapacity = 25;
+  @type("number") weaponMounts = 0;
+  @type("number") techMounts = 0;
   @type("number") harvestWaitLeft = 0;
   @type("number") dropoffWaitLeft = 0;
 }

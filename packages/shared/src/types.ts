@@ -6,6 +6,8 @@ export type Command =
   | { t: "HOLD"; unitIds: string[] }
   | { t: "ATTACK_MOVE"; unitIds: string[]; x: number; z: number; queue?: boolean };
 
+export type UnitType = "RESOURCE_COLLECTOR" | "FIGHTER";
+
 export type UnitState = {
   id: string;
   owner: string;
