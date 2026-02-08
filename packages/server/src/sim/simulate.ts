@@ -37,7 +37,9 @@ const updateUnit = (
 ) => {
   const hasTarget = unit.orderType === "ATTACK" && unit.orderTargetId;
   const hasMoveTarget =
-    unit.orderType === "MOVE" || unit.orderType === "ATTACK_MOVE";
+    unit.orderType === "MOVE" ||
+    unit.orderType === "ATTACK_MOVE" ||
+    unit.orderType === "HARVEST";
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
@@ -62,6 +64,12 @@ const updateUnit = (
     desiredZ = unit.orderZ;
     const distToTarget = distance(unit.x, unit.z, desiredX, desiredZ);
     shouldMove = distToTarget > stats.arrivalRadius;
+    if (!shouldMove) {
+      unit.x = desiredX;
+      unit.z = desiredZ;
+      unit.vx = 0;
+      unit.vz = 0;
+    }
   }
 
   if (unit.orderType === "HOLD") {

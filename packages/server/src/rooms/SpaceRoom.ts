@@ -26,6 +26,8 @@ const DEFAULT_STATS: ShipStats = {
 const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
 const RESOURCE_COLLECTOR_COST = 100;
+const RESOURCE_HARVEST_RANGE = 4;
+const RESOURCE_HARVEST_RATE = 20;
 const BASE_SPAWN_RADIUS = 160;
 const MAP_RESOURCE_SPACING = 60;
 const MAP_RESOURCE_RADIUS = 180;
@@ -199,43 +201,48 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const dt = dtMs / 1000;
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
-    this.assignCollectorsToResources();
     simulate({ units: this.state.units, stats: this.stats, dt });
+    this.processCollectorHarvesting(dt);
   }
 
-  private assignCollectorsToResources() {
-    if (this.state.resources.size === 0) {
+  private processCollectorHarvesting(dt: number) {
+    if (this.state.resources.size === 0 || this.state.bases.size === 0) {
       return;
     }
-    const resources = Array.from(this.state.resources.values());
     for (const unit of this.state.units.values()) {
       if (unit.unitType !== "RESOURCE_COLLECTOR") {
         continue;
       }
-      if (unit.orderType !== "STOP") {
+      if (unit.orderType !== "HARVEST") {
         continue;
       }
-      const target = resources.reduce((closest, resource) => {
-        if (!closest) {
-          return resource;
-        }
-        const currentDistance = Math.hypot(
-          unit.x - resource.x,
-          unit.z - resource.z,
-        );
-        const closestDistance = Math.hypot(
-          unit.x - closest.x,
-          unit.z - closest.z,
-        );
-        return currentDistance < closestDistance ? resource : closest;
-      }, null as ResourceNodeSchema | null);
-      if (!target) {
+      const resource = this.state.resources.get(unit.orderTargetId);
+      if (!resource) {
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
         continue;
       }
-      unit.orderType = "MOVE";
-      unit.orderX = target.x;
-      unit.orderZ = target.z;
-      unit.orderTargetId = "";
+      unit.orderX = resource.x;
+      unit.orderZ = resource.z;
+      const distance = Math.hypot(unit.x - resource.x, unit.z - resource.z);
+      if (distance > RESOURCE_HARVEST_RANGE) {
+        continue;
+      }
+      const base = this.getClosestBaseForOwner(unit.owner, unit.x, unit.z);
+      if (!base) {
+        continue;
+      }
+      const harvested = Math.min(resource.amount, RESOURCE_HARVEST_RATE * dt);
+      if (harvested <= 0) {
+        continue;
+      }
+      resource.amount -= harvested;
+      base.resourceStock += harvested;
+      if (resource.amount <= 0) {
+        this.state.resources.delete(resource.id);
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
+      }
     }
   }
 
@@ -258,6 +265,24 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           unit.orderTargetId = "";
         });
         break;
+      case "HARVEST": {
+        const resource = this.state.resources.get(command.resourceId);
+        targetUnits.forEach((unit) => {
+          if (unit.unitType !== "RESOURCE_COLLECTOR") {
+            return;
+          }
+          if (!resource) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+          }
+          unit.orderType = "HARVEST";
+          unit.orderTargetId = resource.id;
+          unit.orderX = resource.x;
+          unit.orderZ = resource.z;
+        });
+        break;
+      }
       case "ATTACK":
         targetUnits.forEach((unit) => {
           unit.orderType = "ATTACK";
@@ -310,6 +335,28 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     }
     return result;
+  }
+
+  private getClosestBaseForOwner(ownerId: string, unitX: number, unitZ: number) {
+    let closest: BaseSchema | null = null;
+    for (const base of this.state.bases.values()) {
+      if (base.owner !== ownerId) {
+        continue;
+      }
+      if (!closest) {
+        closest = base;
+        continue;
+      }
+      const currentDistance = Math.hypot(base.x - unitX, base.z - unitZ);
+      const closestDistance = Math.hypot(
+        closest.x - unitX,
+        closest.z - unitZ,
+      );
+      if (currentDistance < closestDistance) {
+        closest = base;
+      }
+    }
+    return closest;
   }
 
   private addPlayerToLobbyRoom(room: LobbyRoomSchema, sessionId: string) {
