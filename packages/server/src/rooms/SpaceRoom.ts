@@ -50,19 +50,27 @@ const MAP_RESOURCE_RADIUS = 320;
 
 const UNIT_CONFIG: Record<
   UnitType,
-  { cost: number; cargoCapacity: number; weaponMounts: number; techMounts: number }
+  {
+    cost: number;
+    cargoCapacity: number;
+    weaponMounts: number;
+    techMounts: number;
+    shieldCapacity: number;
+  }
 > = {
   RESOURCE_COLLECTOR: {
     cost: RESOURCE_COLLECTOR_COST,
     cargoCapacity: RESOURCE_COLLECTOR_CAPACITY,
     weaponMounts: 0,
     techMounts: 0,
+    shieldCapacity: 40,
   },
   FIGHTER: {
     cost: FIGHTER_COST,
     cargoCapacity: 0,
     weaponMounts: 1,
     techMounts: 1,
+    shieldCapacity: 75,
   },
 };
 const require = createRequire(import.meta.url);
@@ -712,6 +720,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.cargoCapacity = config.cargoCapacity;
     unit.weaponMounts = config.weaponMounts;
     unit.techMounts = config.techMounts;
+    unit.shields = config.shieldCapacity;
+    unit.maxShields = config.shieldCapacity;
     unit.x = base.x + 6;
     unit.z = base.z + 6;
     this.state.units.set(unit.id, unit);

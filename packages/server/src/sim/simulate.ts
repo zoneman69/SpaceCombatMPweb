@@ -41,6 +41,7 @@ const updateUnit = (
   if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
     unit.vx = 0;
     unit.vz = 0;
+    unit.speed = 0;
     return;
   }
   const hasTarget = unit.orderType === "ATTACK" && unit.orderTargetId;
@@ -97,6 +98,7 @@ const updateUnit = (
 
   unit.x += unit.vx * dt;
   unit.z += unit.vz * dt;
+  unit.speed = Math.hypot(unit.vx, unit.vz);
 
   if (unit.weaponCooldownLeft > 0) {
     unit.weaponCooldownLeft = Math.max(0, unit.weaponCooldownLeft - dt);
@@ -152,7 +154,15 @@ const maybeFire = (
     return;
   }
   unit.weaponCooldownLeft = stats.weaponCooldown;
-  target.hp = Math.max(0, target.hp - stats.weaponDamage);
+  let remainingDamage = stats.weaponDamage;
+  if (target.shields > 0) {
+    const absorbed = Math.min(target.shields, remainingDamage);
+    target.shields = Math.max(0, target.shields - absorbed);
+    remainingDamage -= absorbed;
+  }
+  if (remainingDamage > 0) {
+    target.hp = Math.max(0, target.hp - remainingDamage);
+  }
 };
 
 const distance = (ax: number, az: number, bx: number, bz: number) =>
