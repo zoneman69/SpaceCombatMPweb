@@ -1,7 +1,7 @@
 import Colyseus from "colyseus";
 import { createRequire } from "module";
 import { nanoid } from "nanoid";
-import type { Command, ShipStats } from "@space-combat/shared";
+import type { Command, ShipStats, UnitType } from "@space-combat/shared";
 import {
   BaseSchema,
   LobbyPlayerSchema,
@@ -23,9 +23,19 @@ const DEFAULT_STATS: ShipStats = {
   weaponDamage: 10,
 };
 
+const UNIT_STATS: Record<UnitType, ShipStats> = {
+  RESOURCE_COLLECTOR: DEFAULT_STATS,
+  FIGHTER: {
+    ...DEFAULT_STATS,
+    maxSpeed: 14,
+    weaponDamage: 4,
+  },
+};
+
 const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
 const RESOURCE_COLLECTOR_COST = 100;
+const FIGHTER_COST = 150;
 const RESOURCE_HARVEST_RANGE = 4;
 const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
@@ -37,11 +47,30 @@ const RESOURCE_NODE_MAX_AMOUNT = 420;
 const BASE_SPAWN_RADIUS = 260;
 const MAP_RESOURCE_SPACING = 80;
 const MAP_RESOURCE_RADIUS = 320;
+
+const UNIT_CONFIG: Record<
+  UnitType,
+  { cost: number; cargoCapacity: number; weaponMounts: number; techMounts: number }
+> = {
+  RESOURCE_COLLECTOR: {
+    cost: RESOURCE_COLLECTOR_COST,
+    cargoCapacity: RESOURCE_COLLECTOR_CAPACITY,
+    weaponMounts: 0,
+    techMounts: 0,
+  },
+  FIGHTER: {
+    cost: FIGHTER_COST,
+    cargoCapacity: 0,
+    weaponMounts: 1,
+    techMounts: 1,
+  },
+};
 const require = createRequire(import.meta.url);
 const colyseusPkg = require("colyseus/package.json");
 
 export class SpaceRoom extends Colyseus.Room<SpaceState> {
-  private readonly stats = DEFAULT_STATS;
+  private readonly stats = UNIT_STATS;
+  private readonly unitConfig = UNIT_CONFIG;
   private readonly playerNames = new Map<string, string>();
   private readonly playerRoomIds = new Map<string, string>();
   private readonly baseDropoffLocks = new Map<string, string>();
@@ -221,7 +250,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
     this.advanceCollectorTimers(dt);
-    simulate({ units: this.state.units, stats: this.stats, dt });
+    simulate({
+      units: this.state.units,
+      getStats: (unit) => this.stats[unit.unitType] ?? DEFAULT_STATS,
+      dt,
+    });
     this.processCollectorHarvesting();
   }
 
@@ -644,7 +677,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       sessionId: client.sessionId,
       payload,
     });
-    if (!payload?.baseId || payload.unitType !== "RESOURCE_COLLECTOR") {
+    const unitType = payload?.unitType ?? null;
+    const config = unitType ? this.unitConfig[unitType] : null;
+    if (!payload?.baseId || !unitType || !config) {
       console.log("[lobby] build rejected (invalid payload)", {
         sessionId: client.sessionId,
         payload,
@@ -659,22 +694,24 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       });
       return;
     }
-    if (base.resourceStock < RESOURCE_COLLECTOR_COST) {
+    if (base.resourceStock < config.cost) {
       console.log("[lobby] build rejected (insufficient resources)", {
         sessionId: client.sessionId,
         baseId: base.id,
         resources: base.resourceStock,
-        cost: RESOURCE_COLLECTOR_COST,
+        cost: config.cost,
       });
       return;
     }
-    base.resourceStock -= RESOURCE_COLLECTOR_COST;
+    base.resourceStock -= config.cost;
     const unit = new UnitSchema();
     unit.id = nanoid();
     unit.owner = client.sessionId;
-    unit.unitType = "RESOURCE_COLLECTOR";
+    unit.unitType = unitType;
     unit.cargo = 0;
-    unit.cargoCapacity = RESOURCE_COLLECTOR_CAPACITY;
+    unit.cargoCapacity = config.cargoCapacity;
+    unit.weaponMounts = config.weaponMounts;
+    unit.techMounts = config.techMounts;
     unit.x = base.x + 6;
     unit.z = base.z + 6;
     this.state.units.set(unit.id, unit);
@@ -682,6 +719,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       sessionId: client.sessionId,
       unitId: unit.id,
       baseId: base.id,
+      unitType,
       remaining: base.resourceStock,
     });
   }

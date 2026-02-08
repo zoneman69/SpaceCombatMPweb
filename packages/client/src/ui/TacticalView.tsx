@@ -54,6 +54,7 @@ const CAMERA_RADIUS_MIN = 120;
 const CAMERA_RADIUS_MAX = 620;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
+const FIGHTER_COST = 150;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
@@ -1095,6 +1096,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     : null;
   const canBuildCollector =
     !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
+  const canBuildFighter =
+    !!selectedBase && selectedBase.resourceStock >= FIGHTER_COST;
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -1122,6 +1125,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "cargoCapacity" in selectedUnit
       ? selectedUnit.cargoCapacity
       : 0;
+  const selectedUnitWeaponMounts =
+    selectedUnit && "weaponMounts" in selectedUnit ? selectedUnit.weaponMounts : 0;
+  const selectedUnitTechMounts =
+    selectedUnit && "techMounts" in selectedUnit ? selectedUnit.techMounts : 0;
   const resourceCount = resourcesRef.current?.size ?? 0;
 
   return (
@@ -1207,9 +1214,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
                 : ""}
               Hull {Math.floor(selectedHp)}/100 · Cargo{" "}
               {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
-              Type {selectedUnitType} · Order {selectedUnitOrder} · Target{" "}
-              {selectedUnitTarget} · Dest {selectedUnitDestination} · Source{" "}
-              {selectedUnitSource} · Owner {selectedUnit.owner}.
+              Type {selectedUnitType} · Mounts{" "}
+              {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Order{" "}
+              {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
+              {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
+              {selectedUnit.owner}.
             </p>
           ) : (
             <p className="hud-copy">
@@ -1244,6 +1253,22 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
                 }}
               >
                 Build resource collector ({RESOURCE_COLLECTOR_COST})
+              </button>
+              <button
+                className="hud-button"
+                type="button"
+                disabled={!canBuildFighter}
+                onClick={() => {
+                  if (!room || !selectedBase) {
+                    return;
+                  }
+                  room.send("base:build", {
+                    baseId: selectedBase.id,
+                    unitType: "FIGHTER",
+                  });
+                }}
+              >
+                Build fighter ({FIGHTER_COST})
               </button>
             </>
           ) : (

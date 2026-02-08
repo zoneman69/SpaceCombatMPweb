@@ -19,13 +19,14 @@ type UnitCollection = Pick<
 
 export type SimContext = {
   units: UnitCollection;
-  stats: ShipStats;
+  getStats: (unit: UnitSchema) => ShipStats;
   dt: number;
 };
 
-export const simulate = ({ units, stats, dt }: SimContext) => {
+export const simulate = ({ units, getStats, dt }: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
+    const stats = getStats(unit);
     updateUnit(unit, units, stats, dt);
   }
   resolveUnitCollisions(unitList);
