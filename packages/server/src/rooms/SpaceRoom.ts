@@ -279,19 +279,39 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         break;
       case "HARVEST": {
         const resource = this.state.resources.get(command.resourceId);
+        console.log("[lobby] harvest command", {
+          sessionId: client.sessionId,
+          unitIds: command.unitIds,
+          resourceId: command.resourceId,
+          resourceFound: !!resource,
+        });
         targetUnits.forEach((unit) => {
           if (unit.unitType !== "RESOURCE_COLLECTOR") {
+            console.log("[lobby] harvest rejected (not collector)", {
+              unitId: unit.id,
+              unitType: unit.unitType,
+            });
             return;
           }
           if (!resource) {
             unit.orderType = "STOP";
             unit.orderTargetId = "";
+            console.log("[lobby] harvest rejected (missing resource)", {
+              unitId: unit.id,
+              resourceId: command.resourceId,
+            });
             return;
           }
           unit.orderType = "HARVEST";
           unit.orderTargetId = resource.id;
           unit.orderX = resource.x;
           unit.orderZ = resource.z;
+          console.log("[lobby] harvest accepted", {
+            unitId: unit.id,
+            resourceId: resource.id,
+            resourceX: resource.x,
+            resourceZ: resource.z,
+          });
         });
         break;
       }

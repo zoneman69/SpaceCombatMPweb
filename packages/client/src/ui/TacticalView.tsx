@@ -569,12 +569,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             fallbackUnitsRef.current.get(selection.id) ??
             null
           : null;
-      const isCollector =
-        !!selectedUnit &&
-        "unitType" in selectedUnit &&
-        selectedUnit.unitType === "RESOURCE_COLLECTOR";
-      if (room && selection?.id && isCollector && resource) {
+      if (room && selection?.id && resource) {
         setSelectedBaseId(null);
+        console.log("[tactical] harvest command", {
+          unitId: selection.id,
+          resourceId: resource.id,
+          unit: selectedUnit,
+        });
         room.send("command", {
           t: "HARVEST",
           unitIds: [selection.id],
@@ -631,6 +632,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
       : "RESOURCE_COLLECTOR";
+  const selectedUnitOrder =
+    selectedUnit && "orderType" in selectedUnit ? selectedUnit.orderType : "n/a";
 
   return (
     <div className="tactical-view">
@@ -659,8 +662,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           </p>
           {selectedUnit ? (
             <p className="hud-copy">
-              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} · Owner{" "}
-              {selectedUnit.owner}.
+              Hull {Math.floor(selectedHp)}/100 · Type {selectedUnitType} ·
+              Order {selectedUnitOrder} · Owner {selectedUnit.owner}.
             </p>
           ) : (
             <p className="hud-copy">
