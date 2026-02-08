@@ -120,6 +120,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         room.hostName = this.getPlayerName(client.sessionId);
         this.state.lobbyRooms.set(room.id, room);
         this.addPlayerToLobbyRoom(room, client.sessionId);
+        client.send("lobby:joinedRoom", { roomId: room.id });
         this.emitLobbyRooms();
       },
     );
@@ -141,6 +142,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         }
         this.removePlayerFromLobbyRoom(client.sessionId);
         this.addPlayerToLobbyRoom(room, client.sessionId);
+        client.send("lobby:joinedRoom", { roomId: room.id });
         this.emitLobbyRooms();
       },
     );
