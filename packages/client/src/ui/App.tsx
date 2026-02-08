@@ -147,6 +147,9 @@ export default function App() {
         roomItem.players.onAdd(() => syncLobbyRooms(lobbyRoomsRef.current!));
         roomItem.players.onRemove(() => syncLobbyRooms(lobbyRoomsRef.current!));
         roomItem.players.onChange(() => syncLobbyRooms(lobbyRoomsRef.current!));
+        if (lobbyRoomsRef.current) {
+          syncLobbyRooms(lobbyRoomsRef.current);
+        }
       };
 
       const bindLobbyRooms = (lobbyRooms: SpaceState["lobbyRooms"]) => {
