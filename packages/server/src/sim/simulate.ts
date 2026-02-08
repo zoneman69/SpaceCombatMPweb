@@ -24,9 +24,11 @@ export type SimContext = {
 };
 
 export const simulate = ({ units, stats, dt }: SimContext) => {
-  for (const unit of units.values()) {
+  const unitList = Array.from(units.values());
+  for (const unit of unitList) {
     updateUnit(unit, units, stats, dt);
   }
+  resolveUnitCollisions(unitList);
 };
 
 const updateUnit = (
@@ -35,6 +37,11 @@ const updateUnit = (
   stats: ShipStats,
   dt: number,
 ) => {
+  if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
+    unit.vx = 0;
+    unit.vz = 0;
+    return;
+  }
   const hasTarget = unit.orderType === "ATTACK" && unit.orderTargetId;
   const hasMoveTarget =
     unit.orderType === "MOVE" ||
@@ -149,3 +156,47 @@ const maybeFire = (
 
 const distance = (ax: number, az: number, bx: number, bz: number) =>
   Math.hypot(ax - bx, az - bz);
+
+const UNIT_COLLISION_RADIUS = 2.6;
+const COLLISION_SLOP = 0.01;
+const COLLISION_DAMPING = 0.35;
+
+const resolveUnitCollisions = (units: UnitSchema[]) => {
+  if (units.length < 2) {
+    return;
+  }
+  const minDistance = UNIT_COLLISION_RADIUS * 2;
+  const minDistanceSq = minDistance * minDistance;
+  for (let i = 0; i < units.length; i += 1) {
+    const unitA = units[i];
+    for (let j = i + 1; j < units.length; j += 1) {
+      const unitB = units[j];
+      const dx = unitB.x - unitA.x;
+      const dz = unitB.z - unitA.z;
+      const distSq = dx * dx + dz * dz;
+      if (distSq >= minDistanceSq) {
+        continue;
+      }
+      const dist = Math.sqrt(distSq);
+      const nx = dist > 0.0001 ? dx / dist : 1;
+      const nz = dist > 0.0001 ? dz / dist : 0;
+      const overlap = minDistance - dist + COLLISION_SLOP;
+      const push = overlap * 0.5;
+      unitA.x -= nx * push;
+      unitA.z -= nz * push;
+      unitB.x += nx * push;
+      unitB.z += nz * push;
+
+      const relVx = unitA.vx - unitB.vx;
+      const relVz = unitA.vz - unitB.vz;
+      const relNormal = relVx * nx + relVz * nz;
+      if (relNormal < 0) {
+        const impulse = -relNormal * COLLISION_DAMPING;
+        unitA.vx += nx * impulse;
+        unitA.vz += nz * impulse;
+        unitB.vx -= nx * impulse;
+        unitB.vz -= nz * impulse;
+      }
+    }
+  }
+};
