@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import type {
   BaseSchema,
   ResourceNodeSchema,
@@ -117,6 +118,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
   const [selectedHp, setSelectedHp] = useState(0);
+  const [selectedShields, setSelectedShields] = useState(0);
+  const [selectedSpeed, setSelectedSpeed] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("squad");
@@ -247,7 +250,25 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     rim.position.set(-60, 90, 120);
     scene.add(rim);
 
-    const unitGeometry = new THREE.SphereGeometry(2.6, 12, 12);
+    const fighterGeometry = new THREE.ConeGeometry(2.2, 6, 12);
+    fighterGeometry.rotateZ(-Math.PI / 2);
+    fighterGeometry.translate(0.8, 0, 0);
+
+    const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
+    const collectorNose = new THREE.ConeGeometry(1.5, 2.8, 10);
+    collectorNose.rotateZ(-Math.PI / 2);
+    collectorNose.translate(3.4, 0, 0);
+    const collectorGeometry =
+      mergeGeometries([collectorBody, collectorNose]) ?? collectorBody.clone();
+    collectorBody.dispose();
+    collectorNose.dispose();
+
+    const getUnitGeometry = (unit: UnitSchema | DebugUnit) => {
+      if ("unitType" in unit && unit.unitType === "FIGHTER") {
+        return fighterGeometry;
+      }
+      return collectorGeometry;
+    };
     const baseGeometry = new THREE.CylinderGeometry(4.4, 5.6, 4, 12);
     const resourceGeometry = new THREE.OctahedronGeometry(3.4, 0);
 
@@ -262,7 +283,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             : UNIT_COLORS.enemy.clone(),
         emissive: new THREE.Color("#0b1b3a"),
       });
-      const mesh = new THREE.Mesh(unitGeometry.clone(), material);
+      const mesh = new THREE.Mesh(getUnitGeometry(unit).clone(), material);
       mesh.position.set(unit.x, 0, unit.z);
       mesh.userData = { id: unit.id };
       scene.add(mesh);
@@ -711,7 +732,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         cancelAnimationFrame(requestRef.current);
       }
       renderer.dispose();
-      unitGeometry.dispose();
+      fighterGeometry.dispose();
+      collectorGeometry.dispose();
       baseGeometry.dispose();
       resourceGeometry.dispose();
       meshesRef.current.forEach((render) => {
@@ -750,6 +772,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
     if (!selectedId) {
       setSelectedHp(0);
+      setSelectedShields(0);
+      setSelectedSpeed(0);
       return;
     }
     const selectedUnit =
@@ -757,6 +781,12 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       fallbackUnitsRef.current.get(selectedId);
     setSelectedHp(
       selectedUnit && "hp" in selectedUnit ? selectedUnit.hp : 100,
+    );
+    setSelectedShields(
+      selectedUnit && "shields" in selectedUnit ? selectedUnit.shields : 0,
+    );
+    setSelectedSpeed(
+      selectedUnit && "speed" in selectedUnit ? selectedUnit.speed : 0,
     );
   }, [localSessionId, selection, selectedUnitIds]);
 
@@ -770,6 +800,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         fallbackUnitsRef.current.get(selection.id);
       if (unit) {
         setSelectedHp("hp" in unit ? unit.hp : 100);
+        setSelectedShields("shields" in unit ? unit.shields : 0);
+        setSelectedSpeed("speed" in unit ? unit.speed : 0);
       }
     }, 250);
     return () => window.clearInterval(interval);
@@ -1135,6 +1167,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "cargoCapacity" in selectedUnit
       ? selectedUnit.cargoCapacity
       : 0;
+  const selectedUnitMaxShields =
+    selectedUnit && "maxShields" in selectedUnit ? selectedUnit.maxShields : 0;
   const selectedUnitWeaponMounts =
     selectedUnit && "weaponMounts" in selectedUnit ? selectedUnit.weaponMounts : 0;
   const selectedUnitTechMounts =
@@ -1222,7 +1256,9 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
               {selectedUnitCount > 1
                 ? `${selectedUnitCount} units selected · `
                 : ""}
-              Hull {Math.floor(selectedHp)}/100 · Cargo{" "}
+              Hull {Math.floor(selectedHp)}/100 · Shields{" "}
+              {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
+              {selectedSpeed.toFixed(1)} · Cargo{" "}
               {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
               Type {selectedUnitType} · Mounts{" "}
               {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Order{" "}

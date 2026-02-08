@@ -17,6 +17,9 @@ export type UnitState = {
   vz: number;
   rot: number;
   hp: number;
+  shields: number;
+  maxShields: number;
+  speed: number;
   tgt?: string;
 };
 

@@ -10,6 +10,9 @@ export class UnitSchema extends Schema {
   @type("number") vz = 0;
   @type("number") rot = 0;
   @type("number") hp = 100;
+  @type("number") shields = 0;
+  @type("number") maxShields = 0;
+  @type("number") speed = 0;
   @type("string") tgt = "";
   @type("string") orderType = "STOP";
   @type("number") orderX = 0;
