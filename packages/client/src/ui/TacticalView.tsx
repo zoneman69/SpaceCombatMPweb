@@ -351,12 +351,15 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     });
 
     debugPoll = window.setInterval(() => {
+      const stateUnitCount = room?.state?.units?.size ?? 0;
+      const fallbackCount = fallbackUnitsRef.current.size;
+      const effectiveUnitCount = Math.max(stateUnitCount, fallbackCount);
       setDebugInfo({
         roomId: room?.roomId ?? "n/a",
         sessionId: room?.sessionId ?? "n/a",
         hasRoom: !!room,
-        hasUnits: !!room?.state?.units,
-        unitTotal: room?.state?.units?.size ?? 0,
+        hasUnits: effectiveUnitCount > 0,
+        unitTotal: effectiveUnitCount,
       });
     }, 1000);
 
