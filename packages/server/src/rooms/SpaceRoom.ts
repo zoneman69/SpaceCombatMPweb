@@ -24,7 +24,11 @@ const DEFAULT_STATS: ShipStats = {
 };
 
 const TICK_RATE = 20;
-const DEFAULT_SQUAD_SIZE = 4;
+const BASE_STARTING_RESOURCES = 100;
+const RESOURCE_COLLECTOR_COST = 100;
+const BASE_SPAWN_RADIUS = 160;
+const MAP_RESOURCE_SPACING = 60;
+const MAP_RESOURCE_RADIUS = 180;
 const require = createRequire(import.meta.url);
 const colyseusPkg = require("colyseus/package.json");
 
@@ -32,6 +36,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
   private readonly playerNames = new Map<string, string>();
   private readonly playerRoomIds = new Map<string, string>();
+  private baseSpawnIndex = 0;
 
   onCreate() {
     this.setState(new SpaceState());
@@ -44,14 +49,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       this.handleCommand(client, message);
     });
 
-    this.onMessage("lobby:ensureUnits", (client) => {
-      this.ensureUnitsForClient(client.sessionId);
-    });
-
     this.onMessage("lobby:ensureWorld", (client) => {
       this.ensureResourceNodes();
       this.ensureBaseForClient(client.sessionId);
-      this.ensureUnitsForClient(client.sessionId);
     });
 
     this.onMessage("debug:dumpUnits", (client) => {
@@ -66,6 +66,16 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         units: summary,
       });
     });
+
+    this.onMessage(
+      "base:build",
+      (
+        client,
+        payload: { baseId?: string; unitType?: UnitSchema["unitType"] },
+      ) => {
+        this.handleBuildRequest(client, payload);
+      },
+    );
 
     this.onMessage("lobby:setName", (client, name: string) => {
       console.log("[lobby] setName", {
@@ -155,7 +165,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.emitLobbyRooms(client);
     this.ensureResourceNodes();
     this.ensureBaseForClient(client.sessionId);
-    this.ensureUnitsForClient(client.sessionId);
   }
 
   onLeave(client: Colyseus.Client) {
@@ -179,7 +188,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private tick(dtMs: number) {
     const dt = dtMs / 1000;
-    this.ensureUnitsForAllClients();
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
     this.assignCollectorsToResources();
@@ -229,7 +237,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       targetUnits = this.getAllUnitsForClient(client.sessionId);
     }
     if (targetUnits.length === 0) {
-      this.ensureUnitsForClient(client.sessionId);
       this.ensureBaseForClient(client.sessionId);
       this.ensureResourceNodes();
     }
@@ -319,9 +326,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const base = new BaseSchema();
     base.id = nanoid();
     base.owner = sessionId;
-    const spawnOffset = this.clients.length * 6;
-    base.x = spawnOffset;
-    base.z = spawnOffset - 12;
+    const spawnIndex = this.baseSpawnIndex;
+    this.baseSpawnIndex += 1;
+    const angle =
+      (spawnIndex / Math.max(1, this.clients.length)) * Math.PI * 2;
+    base.x = Math.cos(angle) * BASE_SPAWN_RADIUS;
+    base.z = Math.sin(angle) * BASE_SPAWN_RADIUS;
+    base.resources = BASE_STARTING_RESOURCES;
     this.state.bases.set(base.id, base);
   }
 
@@ -344,62 +355,51 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (this.state.resources.size > 0) {
       return;
     }
-    const nodes = [
-      { x: -24, z: -10 },
-      { x: 0, z: 26 },
-      { x: 24, z: -8 },
-      { x: -36, z: 24 },
-      { x: 36, z: 22 },
-    ];
-    nodes.forEach((node) => {
-      const resource = new ResourceNodeSchema();
-      resource.id = nanoid();
-      resource.x = node.x;
-      resource.z = node.z;
-      this.state.resources.set(resource.id, resource);
-    });
-  }
-
-  private ensureUnitsForClient(sessionId: string) {
-    let unitCount = 0;
-    for (const unit of this.state.units.values()) {
-      if (unit.owner === sessionId) {
-        unitCount += 1;
+    for (
+      let x = -MAP_RESOURCE_RADIUS;
+      x <= MAP_RESOURCE_RADIUS;
+      x += MAP_RESOURCE_SPACING
+    ) {
+      for (
+        let z = -MAP_RESOURCE_RADIUS;
+        z <= MAP_RESOURCE_RADIUS;
+        z += MAP_RESOURCE_SPACING
+      ) {
+        const radius = Math.hypot(x, z);
+        if (radius < MAP_RESOURCE_SPACING * 0.6) {
+          continue;
+        }
+        const resource = new ResourceNodeSchema();
+        resource.id = nanoid();
+        resource.x = x;
+        resource.z = z;
+        this.state.resources.set(resource.id, resource);
       }
-    }
-    if (unitCount >= DEFAULT_SQUAD_SIZE) {
-      console.log("[lobby] ensureUnits skipped (already has units)", {
-        sessionId,
-        units: this.state.units.size,
-      });
-      return;
-    }
-    console.log("[lobby] spawning units", { sessionId });
-    const spawnOffset = this.clients.length * 6;
-    for (let i = unitCount; i < DEFAULT_SQUAD_SIZE; i += 1) {
-      const unit = new UnitSchema();
-      unit.id = nanoid();
-      unit.owner = sessionId;
-      unit.unitType = "RESOURCE_COLLECTOR";
-      unit.x = spawnOffset + i * 2;
-      unit.z = spawnOffset;
-      this.state.units.set(unit.id, unit);
     }
   }
 
-  private ensureUnitsForAllClients() {
-    if (this.clients.length === 0) {
+  private handleBuildRequest(
+    client: Colyseus.Client,
+    payload: { baseId?: string; unitType?: UnitSchema["unitType"] },
+  ) {
+    if (!payload?.baseId || payload.unitType !== "RESOURCE_COLLECTOR") {
       return;
     }
-    const owners = new Set<string>();
-    for (const unit of this.state.units.values()) {
-      owners.add(unit.owner);
+    const base = this.state.bases.get(payload.baseId);
+    if (!base || base.owner !== client.sessionId) {
+      return;
     }
-    this.clients.forEach((client) => {
-      if (!owners.has(client.sessionId)) {
-        this.ensureUnitsForClient(client.sessionId);
-      }
-    });
+    if (base.resources < RESOURCE_COLLECTOR_COST) {
+      return;
+    }
+    base.resources -= RESOURCE_COLLECTOR_COST;
+    const unit = new UnitSchema();
+    unit.id = nanoid();
+    unit.owner = client.sessionId;
+    unit.unitType = "RESOURCE_COLLECTOR";
+    unit.x = base.x + 6;
+    unit.z = base.z + 6;
+    this.state.units.set(unit.id, unit);
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {
