@@ -6,7 +6,7 @@ export {
   ResourceNodeSchema,
   SpaceState,
   UnitSchema,
-} from "./state/SpaceState.js";
+} from "./state/SpaceState";
 export type {
   BaseSchema as BaseSchemaType,
   LobbyPlayerSchema as LobbyPlayerSchemaType,
