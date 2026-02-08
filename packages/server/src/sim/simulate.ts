@@ -37,6 +37,11 @@ const updateUnit = (
   stats: ShipStats,
   dt: number,
 ) => {
+  if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
+    unit.vx = 0;
+    unit.vz = 0;
+    return;
+  }
   const hasTarget = unit.orderType === "ATTACK" && unit.orderTargetId;
   const hasMoveTarget =
     unit.orderType === "MOVE" ||

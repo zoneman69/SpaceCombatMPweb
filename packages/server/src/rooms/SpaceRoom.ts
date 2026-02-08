@@ -27,9 +27,11 @@ const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
 const RESOURCE_COLLECTOR_COST = 100;
 const RESOURCE_HARVEST_RANGE = 4;
-const RESOURCE_HARVEST_RATE = 20;
 const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
+const RESOURCE_HARVEST_WAIT = 2;
+const RESOURCE_DROPOFF_WAIT = 2;
+const RESOURCE_DROPOFF_SPOT_OFFSET = 8;
 const RESOURCE_NODE_MIN_AMOUNT = 120;
 const RESOURCE_NODE_MAX_AMOUNT = 420;
 const BASE_SPAWN_RADIUS = 260;
@@ -42,6 +44,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly stats = DEFAULT_STATS;
   private readonly playerNames = new Map<string, string>();
   private readonly playerRoomIds = new Map<string, string>();
+  private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
 
   onCreate() {
@@ -217,16 +220,99 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const dt = dtMs / 1000;
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
+    this.advanceCollectorTimers(dt);
     simulate({ units: this.state.units, stats: this.stats, dt });
-    this.processCollectorHarvesting(dt);
+    this.processCollectorHarvesting();
   }
 
-  private processCollectorHarvesting(dt: number) {
+  private advanceCollectorTimers(dt: number) {
+    for (const unit of this.state.units.values()) {
+      if (unit.unitType !== "RESOURCE_COLLECTOR") {
+        continue;
+      }
+      if (unit.harvestWaitLeft > 0) {
+        unit.harvestWaitLeft = Math.max(0, unit.harvestWaitLeft - dt);
+        if (unit.harvestWaitLeft === 0) {
+          this.finishHarvest(unit);
+        }
+      }
+      if (unit.dropoffWaitLeft > 0) {
+        unit.dropoffWaitLeft = Math.max(0, unit.dropoffWaitLeft - dt);
+        if (unit.dropoffWaitLeft === 0) {
+          this.finishDropoff(unit);
+        }
+      }
+    }
+  }
+
+  private finishHarvest(unit: UnitSchema) {
+    const resourceId = unit.harvestTargetId || unit.orderTargetId;
+    const resource = this.state.resources.get(resourceId);
+    if (!resource) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+      unit.harvestTargetId = "";
+      return;
+    }
+    const available = unit.cargoCapacity - unit.cargo;
+    if (available <= 0) {
+      this.sendCollectorToBase(unit);
+      return;
+    }
+    const harvested = Math.min(resource.amount, available);
+    if (harvested <= 0) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+      unit.harvestTargetId = "";
+      return;
+    }
+    resource.amount -= harvested;
+    unit.cargo += harvested;
+    if (resource.amount <= 0) {
+      this.state.resources.delete(resource.id);
+    }
+    this.sendCollectorToBase(unit);
+  }
+
+  private finishDropoff(unit: UnitSchema) {
+    const base =
+      this.state.bases.get(unit.orderTargetId) ??
+      this.getClosestBaseForOwner(unit.owner, unit.x, unit.z);
+    if (!base) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+      this.baseDropoffLocks.delete(unit.orderTargetId);
+      return;
+    }
+    if (unit.cargo > 0) {
+      base.resourceStock += unit.cargo;
+      unit.cargo = 0;
+    }
+    this.baseDropoffLocks.delete(base.id);
+    if (unit.harvestTargetId) {
+      const resource = this.state.resources.get(unit.harvestTargetId);
+      if (resource && resource.amount > 0) {
+        unit.orderType = "HARVEST";
+        unit.orderTargetId = resource.id;
+        unit.orderX = resource.x;
+        unit.orderZ = resource.z;
+        return;
+      }
+      unit.harvestTargetId = "";
+    }
+    unit.orderType = "STOP";
+    unit.orderTargetId = "";
+  }
+
+  private processCollectorHarvesting() {
     if (this.state.bases.size === 0) {
       return;
     }
     for (const unit of this.state.units.values()) {
       if (unit.unitType !== "RESOURCE_COLLECTOR") {
+        continue;
+      }
+      if (unit.dropoffWaitLeft > 0) {
         continue;
       }
       if (unit.orderType === "RETURN") {
@@ -251,31 +337,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       unit.harvestTargetId = resource.id;
       unit.orderX = resource.x;
       unit.orderZ = resource.z;
-      if (unit.cargo >= unit.cargoCapacity) {
-        this.sendCollectorToBase(unit);
-        continue;
-      }
       const distance = Math.hypot(unit.x - resource.x, unit.z - resource.z);
       if (distance > RESOURCE_HARVEST_RANGE) {
         continue;
       }
-      const harvested = Math.min(
-        resource.amount,
-        RESOURCE_HARVEST_RATE * dt,
-        unit.cargoCapacity - unit.cargo,
-      );
-      if (harvested <= 0) {
-        continue;
-      }
-      resource.amount -= harvested;
-      unit.cargo += harvested;
-      if (unit.cargo >= unit.cargoCapacity) {
-        this.sendCollectorToBase(unit);
-      }
-      if (resource.amount <= 0) {
-        this.state.resources.delete(resource.id);
-        unit.harvestTargetId = "";
-        this.sendCollectorToBase(unit);
+      if (unit.harvestWaitLeft <= 0) {
+        unit.harvestWaitLeft = RESOURCE_HARVEST_WAIT;
+        unit.vx = 0;
+        unit.vz = 0;
       }
     }
   }
@@ -289,29 +358,27 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       unit.orderTargetId = "";
       return;
     }
-    unit.orderX = base.x;
-    unit.orderZ = base.z;
-    const distance = Math.hypot(unit.x - base.x, unit.z - base.z);
+    const dropoffSpot = this.getBaseDropoffSpot(base);
+    unit.orderX = dropoffSpot.x;
+    unit.orderZ = dropoffSpot.z;
+    const distance = Math.hypot(unit.x - dropoffSpot.x, unit.z - dropoffSpot.z);
     if (distance > RESOURCE_DROPOFF_RANGE) {
       return;
     }
-    if (unit.cargo > 0) {
-      base.resourceStock += unit.cargo;
-      unit.cargo = 0;
+    const lockedBy = this.baseDropoffLocks.get(base.id);
+    if (lockedBy && lockedBy !== unit.id) {
+      unit.vx = 0;
+      unit.vz = 0;
+      return;
     }
-    if (unit.harvestTargetId) {
-      const resource = this.state.resources.get(unit.harvestTargetId);
-      if (resource && resource.amount > 0) {
-        unit.orderType = "HARVEST";
-        unit.orderTargetId = resource.id;
-        unit.orderX = resource.x;
-        unit.orderZ = resource.z;
-        return;
-      }
-      unit.harvestTargetId = "";
+    if (!lockedBy) {
+      this.baseDropoffLocks.set(base.id, unit.id);
     }
-    unit.orderType = "STOP";
-    unit.orderTargetId = "";
+    if (unit.dropoffWaitLeft <= 0) {
+      unit.dropoffWaitLeft = RESOURCE_DROPOFF_WAIT;
+      unit.vx = 0;
+      unit.vz = 0;
+    }
   }
 
   private sendCollectorToBase(unit: UnitSchema) {
@@ -321,10 +388,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       unit.orderTargetId = "";
       return;
     }
+    const dropoffSpot = this.getBaseDropoffSpot(base);
     unit.orderType = "RETURN";
     unit.orderTargetId = base.id;
-    unit.orderX = base.x;
-    unit.orderZ = base.z;
+    unit.orderX = dropoffSpot.x;
+    unit.orderZ = dropoffSpot.z;
+  }
+
+  private getBaseDropoffSpot(base: BaseSchema) {
+    return {
+      x: base.x + RESOURCE_DROPOFF_SPOT_OFFSET,
+      z: base.z,
+    };
   }
 
   private handleCommand(client: Colyseus.Client, command: Command) {

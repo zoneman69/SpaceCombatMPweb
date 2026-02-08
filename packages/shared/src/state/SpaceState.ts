@@ -19,6 +19,8 @@ export class UnitSchema extends Schema {
   @type("string") unitType = "RESOURCE_COLLECTOR";
   @type("number") cargo = 0;
   @type("number") cargoCapacity = 25;
+  @type("number") harvestWaitLeft = 0;
+  @type("number") dropoffWaitLeft = 0;
 }
 
 export class BaseSchema extends Schema {
