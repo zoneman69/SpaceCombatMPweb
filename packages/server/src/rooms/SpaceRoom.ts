@@ -284,12 +284,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           unitIds: command.unitIds,
           resourceId: command.resourceId,
           resourceFound: !!resource,
+          targetUnitCount: targetUnits.length,
         });
         targetUnits.forEach((unit) => {
           if (unit.unitType !== "RESOURCE_COLLECTOR") {
             console.log("[lobby] harvest rejected (not collector)", {
               unitId: unit.id,
               unitType: unit.unitType,
+              orderType: unit.orderType,
             });
             return;
           }
@@ -299,6 +301,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
             console.log("[lobby] harvest rejected (missing resource)", {
               unitId: unit.id,
               resourceId: command.resourceId,
+              orderType: unit.orderType,
             });
             return;
           }
@@ -311,6 +314,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
             resourceId: resource.id,
             resourceX: resource.x,
             resourceZ: resource.z,
+            orderType: unit.orderType,
           });
         });
         break;
