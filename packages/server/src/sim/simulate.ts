@@ -64,6 +64,12 @@ const updateUnit = (
     desiredZ = unit.orderZ;
     const distToTarget = distance(unit.x, unit.z, desiredX, desiredZ);
     shouldMove = distToTarget > stats.arrivalRadius;
+    if (!shouldMove) {
+      unit.x = desiredX;
+      unit.z = desiredZ;
+      unit.vx = 0;
+      unit.vz = 0;
+    }
   }
 
   if (unit.orderType === "HOLD") {
