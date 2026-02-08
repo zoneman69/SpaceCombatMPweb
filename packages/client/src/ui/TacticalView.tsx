@@ -536,10 +536,27 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
 
     const target = new THREE.Vector3();
     if (raycaster.ray.intersectPlane(targetPlane, target)) {
-      if (selection?.id && room) {
+      if (!room) {
+        return;
+      }
+      const ownedUnitIds: string[] = [];
+      unitsRef.current?.forEach((unit) => {
+        if (unit.owner === localSessionId) {
+          ownedUnitIds.push(unit.id);
+        }
+      });
+      if (ownedUnitIds.length === 0) {
+        fallbackUnitsRef.current.forEach((unit) => {
+          if (unit.owner === localSessionId) {
+            ownedUnitIds.push(unit.id);
+          }
+        });
+      }
+      const unitIds = selection?.id ? [selection.id] : ownedUnitIds;
+      if (unitIds.length > 0) {
         room.send("command", {
           t: "MOVE",
-          unitIds: [selection.id],
+          unitIds,
           x: target.x,
           z: target.z,
         });

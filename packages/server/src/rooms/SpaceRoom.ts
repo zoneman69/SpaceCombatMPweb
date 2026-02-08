@@ -24,6 +24,7 @@ const DEFAULT_STATS: ShipStats = {
 };
 
 const TICK_RATE = 20;
+const DEFAULT_SQUAD_SIZE = 4;
 const require = createRequire(import.meta.url);
 const colyseusPkg = require("colyseus/package.json");
 
@@ -186,14 +187,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private handleCommand(client: Colyseus.Client, command: Command) {
     const units = this.getClientUnits(client.sessionId, command.unitIds);
-    if (units.length === 0) {
+    let targetUnits = units;
+    if (targetUnits.length === 0) {
+      targetUnits = this.getAllUnitsForClient(client.sessionId);
+    }
+    if (targetUnits.length === 0) {
       this.ensureUnitsForClient(client.sessionId);
       this.ensureBaseForClient(client.sessionId);
       this.ensureResourceNodes();
     }
     switch (command.t) {
       case "MOVE":
-        units.forEach((unit) => {
+        targetUnits.forEach((unit) => {
           unit.orderType = "MOVE";
           unit.orderX = command.x;
           unit.orderZ = command.z;
@@ -201,13 +206,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         });
         break;
       case "ATTACK":
-        units.forEach((unit) => {
+        targetUnits.forEach((unit) => {
           unit.orderType = "ATTACK";
           unit.orderTargetId = command.targetId;
         });
         break;
       case "ATTACK_MOVE":
-        units.forEach((unit) => {
+        targetUnits.forEach((unit) => {
           unit.orderType = "ATTACK_MOVE";
           unit.orderX = command.x;
           unit.orderZ = command.z;
@@ -215,13 +220,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         });
         break;
       case "HOLD":
-        units.forEach((unit) => {
+        targetUnits.forEach((unit) => {
           unit.orderType = "HOLD";
           unit.orderTargetId = "";
         });
         break;
       case "STOP":
-        units.forEach((unit) => {
+        targetUnits.forEach((unit) => {
           unit.orderType = "STOP";
           unit.orderTargetId = "";
           unit.vx = 0;
@@ -241,6 +246,16 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         result.push(unit);
       }
     });
+    return result;
+  }
+
+  private getAllUnitsForClient(ownerId: string) {
+    const result: UnitSchema[] = [];
+    for (const unit of this.state.units.values()) {
+      if (unit.owner === ownerId) {
+        result.push(unit);
+      }
+    }
     return result;
   }
 
@@ -309,14 +324,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private ensureUnitsForClient(sessionId: string) {
-    let hasUnits = false;
+    let unitCount = 0;
     for (const unit of this.state.units.values()) {
       if (unit.owner === sessionId) {
-        hasUnits = true;
-        break;
+        unitCount += 1;
       }
     }
-    if (hasUnits) {
+    if (unitCount >= DEFAULT_SQUAD_SIZE) {
       console.log("[lobby] ensureUnits skipped (already has units)", {
         sessionId,
         units: this.state.units.size,
@@ -325,7 +339,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     console.log("[lobby] spawning units", { sessionId });
     const spawnOffset = this.clients.length * 6;
-    for (let i = 0; i < 1; i += 1) {
+    for (let i = unitCount; i < DEFAULT_SQUAD_SIZE; i += 1) {
       const unit = new UnitSchema();
       unit.id = nanoid();
       unit.owner = sessionId;
