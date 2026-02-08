@@ -146,6 +146,7 @@ export default function App() {
           room.sessionId,
           roomsRef.current,
         );
+        roomsRef.current = hydratedRooms;
         setRooms(hydratedRooms);
         if (!room.sessionId) {
           return;
