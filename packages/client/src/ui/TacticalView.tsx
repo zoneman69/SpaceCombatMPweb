@@ -118,6 +118,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     height: 0,
     visible: false,
   });
+  const [isPointerInsideCanvas, setIsPointerInsideCanvas] = useState(false);
   const [lastResourceClick, setLastResourceClick] = useState<{
     id: string;
     at: number;
@@ -136,6 +137,16 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     () => new THREE.Plane(new THREE.Vector3(0, 1, 0), 0),
     [],
   );
+
+  useEffect(() => {
+    document.body.classList.toggle(
+      "tactical-view-scroll-locked",
+      isPointerInsideCanvas,
+    );
+    return () => {
+      document.body.classList.remove("tactical-view-scroll-locked");
+    };
+  }, [isPointerInsideCanvas]);
 
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
@@ -829,6 +840,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   };
 
   const handlePointerLeave = (event: React.PointerEvent<HTMLDivElement>) => {
+    setIsPointerInsideCanvas(false);
     if (!dragStateRef.current.active) {
       return;
     }
@@ -840,6 +852,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     const nextRadius =
       cameraRadiusRef.current + event.deltaY * CAMERA_ZOOM_SPEED;
     cameraRadiusRef.current = Math.min(
@@ -1023,6 +1036,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       <div
         className="tactical-canvas"
         ref={containerRef}
+        onPointerEnter={() => setIsPointerInsideCanvas(true)}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
