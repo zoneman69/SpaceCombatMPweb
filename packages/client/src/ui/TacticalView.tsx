@@ -73,6 +73,10 @@ const CAMERA_RADIUS_MAX = 620;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
+const UNIT_WEAPON_MOUNT_COST = 80;
+const BASE_WEAPON_MOUNT_COST = 120;
+const MAX_UNIT_WEAPON_MOUNTS = 3;
+const MAX_BASE_WEAPON_MOUNTS = 4;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
@@ -1260,6 +1264,12 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
   const canBuildFighter =
     !!selectedBase && selectedBase.resourceStock >= FIGHTER_COST;
+  const selectedBaseWeaponMounts =
+    selectedBase && "weaponMounts" in selectedBase ? selectedBase.weaponMounts : 0;
+  const canUpgradeBaseWeapons =
+    !!selectedBase &&
+    selectedBase.resourceStock >= BASE_WEAPON_MOUNT_COST &&
+    selectedBaseWeaponMounts < MAX_BASE_WEAPON_MOUNTS;
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -1293,6 +1303,20 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     selectedUnit && "weaponMounts" in selectedUnit ? selectedUnit.weaponMounts : 0;
   const selectedUnitTechMounts =
     selectedUnit && "techMounts" in selectedUnit ? selectedUnit.techMounts : 0;
+  const selectedUnitsWithMountSpace = selectedUnitIds.filter((unitId) => {
+    const unit =
+      unitsRef.current?.get(unitId) ?? fallbackUnitsRef.current.get(unitId);
+    if (!unit || !("weaponMounts" in unit)) {
+      return false;
+    }
+    return unit.weaponMounts < MAX_UNIT_WEAPON_MOUNTS;
+  });
+  const totalUnitMountCost =
+    selectedUnitsWithMountSpace.length * UNIT_WEAPON_MOUNT_COST;
+  const canUpgradeUnitWeapons =
+    !!selectedBase &&
+    selectedUnitsWithMountSpace.length > 0 &&
+    selectedBase.resourceStock >= UNIT_WEAPON_MOUNT_COST;
   const resourceCount = resourcesRef.current?.size ?? 0;
 
   return (
@@ -1402,7 +1426,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             <>
               <p className="hud-copy">
                 Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
-                {selectedBase.owner}.
+                {selectedBase.owner} · Weapon mounts{" "}
+                {selectedBaseWeaponMounts}/{MAX_BASE_WEAPON_MOUNTS}.
               </p>
               <p className="hud-copy">
                 Hull: {Math.max(0, Math.floor(selectedBase.hp))} · Shields:{" "}
@@ -1447,6 +1472,100 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
               Click your base to open the build menu.
             </p>
           )}
+        </div>
+      </div>
+      <div className="tactical-hud tactical-hud-secondary">
+        <div>
+          <p className="hud-title">Weapons bay</p>
+          <p className="hud-copy">
+            Allocate resources to upgrade your base defenses and outfit selected
+            ships with additional weapon mounts.
+          </p>
+          <div className="mount-shop">
+            <div className="mount-card">
+              <div className="mount-card-header">
+                <div>
+                  <p className="mount-label">Base defense grid</p>
+                  <p className="mount-title">Orbital turret mounts</p>
+                </div>
+                <span className="mount-badge">
+                  {selectedBaseWeaponMounts}/{MAX_BASE_WEAPON_MOUNTS}
+                </span>
+              </div>
+              <div className="mount-card-body">
+                <p className="mount-meta">
+                  Cost per mount: {BASE_WEAPON_MOUNT_COST} · Range upgrade ready
+                </p>
+                {selectedBase ? (
+                  <p className="mount-meta">
+                    Base resources: {Math.floor(selectedBase.resourceStock)}
+                  </p>
+                ) : (
+                  <p className="mount-meta">
+                    Select your base to authorize turret upgrades.
+                  </p>
+                )}
+                <button
+                  className="hud-button mount-action"
+                  type="button"
+                  disabled={!canUpgradeBaseWeapons}
+                  onClick={() => {
+                    if (!room || !selectedBase) {
+                      return;
+                    }
+                    room.send("base:mountWeapon", {
+                      baseId: selectedBase.id,
+                    });
+                  }}
+                >
+                  Install base mount
+                </button>
+              </div>
+            </div>
+            <div className="mount-card">
+              <div className="mount-card-header">
+                <div>
+                  <p className="mount-label">Ship outfitting</p>
+                  <p className="mount-title">Weapon mount kit</p>
+                </div>
+                <span className="mount-badge">
+                  {selectedUnitsWithMountSpace.length}/{selectedUnitCount || 0}
+                </span>
+              </div>
+              <div className="mount-card-body">
+                <p className="mount-meta">
+                  Cost per ship: {UNIT_WEAPON_MOUNT_COST} · Max mounts{" "}
+                  {MAX_UNIT_WEAPON_MOUNTS}
+                </p>
+                {selectedBase ? (
+                  <p className="mount-meta">
+                    Total cost: {totalUnitMountCost} · Base resources:{" "}
+                    {Math.floor(selectedBase.resourceStock)}
+                  </p>
+                ) : (
+                  <p className="mount-meta">
+                    Select your base to spend resources on upgrades.
+                  </p>
+                )}
+                <button
+                  className="hud-button mount-action"
+                  type="button"
+                  disabled={!canUpgradeUnitWeapons}
+                  onClick={() => {
+                    if (!room || !selectedBase) {
+                      return;
+                    }
+                    room.send("unit:mountWeapon", {
+                      baseId: selectedBase.id,
+                      unitIds: selectedUnitsWithMountSpace,
+                    });
+                  }}
+                >
+                  Outfit selected ships
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
       <div className="tactical-hud tactical-hud-secondary">
