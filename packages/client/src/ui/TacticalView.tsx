@@ -77,6 +77,7 @@ const CAMERA_DISTANCE = 300;
 const CAMERA_LERP_SPEED = 2.5;
 const CAMERA_ROTATE_SPEED = 0.005;
 const CAMERA_PAN_SPEED = 0.9;
+const CAMERA_KEY_PAN_SPEED = 12;
 const CAMERA_ZOOM_SPEED = 0.25;
 const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
@@ -215,6 +216,69 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
   }, [localSessionId]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isPointerInsideCanvas || !cameraRef.current) {
+        return;
+      }
+      const target = event.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+      let forwardAmount = 0;
+      let rightAmount = 0;
+      switch (event.key) {
+        case "w":
+        case "W":
+        case "ArrowUp":
+          forwardAmount = 1;
+          break;
+        case "s":
+        case "S":
+        case "ArrowDown":
+          forwardAmount = -1;
+          break;
+        case "a":
+        case "A":
+        case "ArrowLeft":
+          rightAmount = -1;
+          break;
+        case "d":
+        case "D":
+        case "ArrowRight":
+          rightAmount = 1;
+          break;
+        default:
+          return;
+      }
+      event.preventDefault();
+      const camera = cameraRef.current;
+      const forward = new THREE.Vector3();
+      camera.getWorldDirection(forward);
+      forward.y = 0;
+      forward.normalize();
+      const right = new THREE.Vector3();
+      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+      const panStep = Math.min(
+        40,
+        Math.max(6, (cameraRadiusRef.current / 300) * CAMERA_KEY_PAN_SPEED),
+      );
+      cameraTargetRef.current.addScaledVector(forward, forwardAmount * panStep);
+      cameraTargetRef.current.addScaledVector(right, rightAmount * panStep);
+      setCameraMode("free");
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [isPointerInsideCanvas]);
 
   useEffect(() => {
     cameraModeRef.current = cameraMode;
@@ -1547,8 +1611,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           <p className="hud-title">Squad Tactical View</p>
           <p className="hud-copy">
             Drag to box-select multiple ships, then click the field to issue
-            group orders. Use right-drag to rotate, middle-drag to pan, and
-            scroll to zoom the camera.
+            group orders. Use right-drag to rotate, middle-drag or WASD/arrow
+            keys to pan, and scroll to zoom the camera.
           </p>
           <div className="hud-actions">
             <button
