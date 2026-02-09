@@ -10,6 +10,7 @@ export class UnitSchema extends Schema {
   @type("number") vz = 0;
   @type("number") rot = 0;
   @type("number") hp = 100;
+  @type("number") maxHp = 100;
   @type("number") shields = 0;
   @type("number") maxShields = 0;
   @type("number") speed = 0;
@@ -21,10 +22,14 @@ export class UnitSchema extends Schema {
   @type("string") harvestTargetId = "";
   @type("number") weaponCooldownLeft = 0;
   @type("string") unitType: UnitType = "RESOURCE_COLLECTOR";
+  @type("string") weaponType = "LASER";
   @type("number") cargo = 0;
   @type("number") cargoCapacity = 25;
   @type("number") weaponMounts = 0;
   @type("number") techMounts = 0;
+  @type("number") speedBonus = 0;
+  @type("number") radarRangeBonus = 0;
+  @type("number") weaponDamageBonus = 0;
   @type("number") harvestWaitLeft = 0;
   @type("number") dropoffWaitLeft = 0;
 }
@@ -37,7 +42,21 @@ export class BaseSchema extends Schema {
   @type("number") hp = 400;
   @type("number") shields = 0;
   @type("number") maxShields = 0;
+  @type("number") weaponMounts = 0;
+  @type("number") weaponCooldownLeft = 0;
   @type("number") resourceStock = 0;
+}
+
+export class BaseModuleSchema extends Schema {
+  @type("string") id = "";
+  @type("string") owner = "";
+  @type("string") baseId = "";
+  @type("string") moduleType = "";
+  @type("string") weaponType = "";
+  @type("number") x = 0;
+  @type("number") z = 0;
+  @type("number") weaponCooldownLeft = 0;
+  @type("boolean") active = true;
 }
 
 export class ResourceNodeSchema extends Schema {
@@ -66,6 +85,7 @@ export class LobbyRoomSchema extends Schema {
 export class SpaceState extends Schema {
   @type({ map: UnitSchema }) units = new MapSchema<UnitSchema>();
   @type({ map: BaseSchema }) bases = new MapSchema<BaseSchema>();
+  @type({ map: BaseModuleSchema }) modules = new MapSchema<BaseModuleSchema>();
   @type({ map: ResourceNodeSchema })
   resources = new MapSchema<ResourceNodeSchema>();
   @type({ map: LobbyRoomSchema }) lobbyRooms = new MapSchema<LobbyRoomSchema>();

@@ -1,5 +1,11 @@
 import type { MapSchema } from "@colyseus/schema";
-import type { BaseSchema, ShipStats, UnitSchema } from "@space-combat/shared";
+import type {
+  BaseModuleSchema,
+  BaseSchema,
+  ShipStats,
+  UnitSchema,
+  WeaponType,
+} from "@space-combat/shared";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -22,9 +28,15 @@ type BaseCollection = Pick<
   "get" | "values"
 >;
 
+type ModuleCollection = Pick<
+  Map<string, BaseModuleSchema> | MapSchema<BaseModuleSchema>,
+  "get" | "values"
+>;
+
 export type SimContext = {
   units: UnitCollection;
   bases: BaseCollection;
+  modules: ModuleCollection;
   getStats: (unit: UnitSchema) => ShipStats;
   dt: number;
 };
@@ -34,11 +46,36 @@ type AttackTarget = Pick<
   "id" | "x" | "z" | "hp" | "shields" | "maxShields"
 >;
 
-export const simulate = ({ units, bases, getStats, dt }: SimContext) => {
+const BASE_WEAPON_STATS: Record<
+  WeaponType,
+  Pick<ShipStats, "weaponRange" | "weaponCooldown" | "weaponDamage">
+> = {
+  LASER: {
+    weaponRange: 18,
+    weaponCooldown: 1.4,
+    weaponDamage: 10,
+  },
+  PLASMA: {
+    weaponRange: 14,
+    weaponCooldown: 1.8,
+    weaponDamage: 16,
+  },
+  RAIL: {
+    weaponRange: 22,
+    weaponCooldown: 2.1,
+    weaponDamage: 12,
+  },
+};
+
+export const simulate = ({ units, bases, modules, getStats, dt }: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
     const stats = getStats(unit);
     updateUnit(unit, units, bases, stats, dt);
+  }
+  const baseList = Array.from(bases.values());
+  for (const base of baseList) {
+    updateBase(base, units, bases, modules, dt);
   }
   resolveUnitCollisions(unitList);
 };
@@ -198,6 +235,9 @@ const distance = (ax: number, az: number, bx: number, bz: number) =>
 const isEnemy = (unit: UnitSchema, target: UnitSchema | BaseSchema) =>
   target.owner !== unit.owner;
 
+const isEnemyBase = (base: BaseSchema, target: UnitSchema | BaseSchema) =>
+  target.owner !== base.owner;
+
 const findAutoTarget = (
   unit: UnitSchema,
   units: UnitCollection,
@@ -240,6 +280,79 @@ const findAutoTarget = (
     return null;
   }
   return { target: closest, distance: closestDistance };
+};
+
+const updateBase = (
+  base: BaseSchema,
+  units: UnitCollection,
+  bases: BaseCollection,
+  modules: ModuleCollection,
+  dt: number,
+) => {
+  if (base.weaponCooldownLeft > 0) {
+    base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
+  }
+  let hasWeaponModules = false;
+  for (const module of modules.values()) {
+    if (module.baseId !== base.id || module.moduleType !== "WEAPON_TURRET") {
+      continue;
+    }
+    if (!module.active) {
+      continue;
+    }
+    hasWeaponModules = true;
+    if (module.weaponCooldownLeft > 0) {
+      module.weaponCooldownLeft = Math.max(0, module.weaponCooldownLeft - dt);
+      continue;
+    }
+    const stats =
+      BASE_WEAPON_STATS[module.weaponType as WeaponType] ??
+      BASE_WEAPON_STATS.LASER;
+    let closest: AttackTarget | null = null;
+    let closestDistance = 0;
+    for (const target of units.values()) {
+      if (!isEnemyBase(base, target) || target.hp <= 0) {
+        continue;
+      }
+      const dist = distance(module.x, module.z, target.x, target.z);
+      if (dist > stats.weaponRange) {
+        continue;
+      }
+      if (!closest || dist < closestDistance) {
+        closest = target;
+        closestDistance = dist;
+      }
+    }
+    for (const target of bases.values()) {
+      if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
+        continue;
+      }
+      const dist = distance(module.x, module.z, target.x, target.z);
+      if (dist > stats.weaponRange) {
+        continue;
+      }
+      if (!closest || dist < closestDistance) {
+        closest = target;
+        closestDistance = dist;
+      }
+    }
+    if (!closest) {
+      continue;
+    }
+    module.weaponCooldownLeft = stats.weaponCooldown;
+    let remainingDamage = stats.weaponDamage;
+    if (closest.shields > 0) {
+      const absorbed = Math.min(closest.shields, remainingDamage);
+      closest.shields = Math.max(0, closest.shields - absorbed);
+      remainingDamage -= absorbed;
+    }
+    if (remainingDamage > 0) {
+      closest.hp = Math.max(0, closest.hp - remainingDamage);
+    }
+  }
+  if (!hasWeaponModules) {
+    return;
+  }
 };
 
 const UNIT_COLLISION_RADIUS = 2.6;
