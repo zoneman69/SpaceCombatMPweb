@@ -36,8 +36,13 @@ const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
 const BASE_STARTING_HULL = 400;
 const BASE_STARTING_SHIELDS = 200;
+const BASE_STARTING_WEAPON_MOUNTS = 1;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
+const UNIT_WEAPON_MOUNT_COST = 80;
+const BASE_WEAPON_MOUNT_COST = 120;
+const MAX_UNIT_WEAPON_MOUNTS = 3;
+const MAX_BASE_WEAPON_MOUNTS = 4;
 const RESOURCE_HARVEST_RANGE = 4;
 const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
@@ -126,6 +131,23 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         payload: { baseId?: string; unitType?: UnitSchema["unitType"] },
       ) => {
         this.handleBuildRequest(client, payload);
+      },
+    );
+
+    this.onMessage(
+      "unit:mountWeapon",
+      (
+        client,
+        payload: { baseId?: string; unitIds?: string[]; count?: number },
+      ) => {
+        this.handleUnitWeaponMount(client, payload);
+      },
+    );
+
+    this.onMessage(
+      "base:mountWeapon",
+      (client, payload: { baseId?: string; count?: number }) => {
+        this.handleBaseWeaponMount(client, payload);
       },
     );
 
@@ -663,6 +685,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.hp = BASE_STARTING_HULL;
     base.shields = BASE_STARTING_SHIELDS;
     base.maxShields = BASE_STARTING_SHIELDS;
+    base.weaponMounts = BASE_STARTING_WEAPON_MOUNTS;
+    base.weaponCooldownLeft = 0;
     base.resourceStock = BASE_STARTING_RESOURCES;
     this.state.bases.set(base.id, base);
     console.log("[lobby] base spawned", {
@@ -782,6 +806,120 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       unitId: unit.id,
       baseId: base.id,
       unitType,
+      remaining: base.resourceStock,
+    });
+  }
+
+  private handleUnitWeaponMount(
+    client: Colyseus.Client,
+    payload: { baseId?: string; unitIds?: string[]; count?: number },
+  ) {
+    console.log("[lobby] unit mount request", {
+      sessionId: client.sessionId,
+      payload,
+    });
+    const baseId = payload?.baseId;
+    const unitIds = payload?.unitIds ?? [];
+    const count = Math.max(1, payload?.count ?? 1);
+    if (!baseId || unitIds.length === 0) {
+      console.log("[lobby] unit mount rejected (invalid payload)", {
+        sessionId: client.sessionId,
+        payload,
+      });
+      return;
+    }
+    const base = this.state.bases.get(baseId);
+    if (!base || base.owner !== client.sessionId) {
+      console.log("[lobby] unit mount rejected (invalid base)", {
+        sessionId: client.sessionId,
+        baseId,
+      });
+      return;
+    }
+    let remainingResources = base.resourceStock;
+    const units = this.getClientUnits(client.sessionId, unitIds);
+    let mountsApplied = 0;
+    units.forEach((unit) => {
+      if (remainingResources < UNIT_WEAPON_MOUNT_COST) {
+        return;
+      }
+      const targetMounts = Math.min(
+        unit.weaponMounts + count,
+        MAX_UNIT_WEAPON_MOUNTS,
+      );
+      const needed = targetMounts - unit.weaponMounts;
+      if (needed <= 0) {
+        return;
+      }
+      const affordable = Math.min(
+        needed,
+        Math.floor(remainingResources / UNIT_WEAPON_MOUNT_COST),
+      );
+      if (affordable <= 0) {
+        return;
+      }
+      unit.weaponMounts += affordable;
+      remainingResources -= affordable * UNIT_WEAPON_MOUNT_COST;
+      mountsApplied += affordable;
+    });
+    base.resourceStock = remainingResources;
+    console.log("[lobby] unit mount complete", {
+      sessionId: client.sessionId,
+      baseId,
+      mountsApplied,
+      remaining: base.resourceStock,
+    });
+  }
+
+  private handleBaseWeaponMount(
+    client: Colyseus.Client,
+    payload: { baseId?: string; count?: number },
+  ) {
+    console.log("[lobby] base mount request", {
+      sessionId: client.sessionId,
+      payload,
+    });
+    const baseId = payload?.baseId;
+    const count = Math.max(1, payload?.count ?? 1);
+    if (!baseId) {
+      console.log("[lobby] base mount rejected (invalid payload)", {
+        sessionId: client.sessionId,
+        payload,
+      });
+      return;
+    }
+    const base = this.state.bases.get(baseId);
+    if (!base || base.owner !== client.sessionId) {
+      console.log("[lobby] base mount rejected (invalid base)", {
+        sessionId: client.sessionId,
+        baseId,
+      });
+      return;
+    }
+    const availableSlots = Math.max(
+      0,
+      MAX_BASE_WEAPON_MOUNTS - base.weaponMounts,
+    );
+    const desired = Math.min(count, availableSlots);
+    const affordable = Math.min(
+      desired,
+      Math.floor(base.resourceStock / BASE_WEAPON_MOUNT_COST),
+    );
+    if (affordable <= 0) {
+      console.log("[lobby] base mount rejected (insufficient resources)", {
+        sessionId: client.sessionId,
+        baseId,
+        resources: base.resourceStock,
+        cost: BASE_WEAPON_MOUNT_COST,
+      });
+      return;
+    }
+    base.weaponMounts += affordable;
+    base.resourceStock -= affordable * BASE_WEAPON_MOUNT_COST;
+    console.log("[lobby] base mount complete", {
+      sessionId: client.sessionId,
+      baseId,
+      mountsApplied: affordable,
       remaining: base.resourceStock,
     });
   }

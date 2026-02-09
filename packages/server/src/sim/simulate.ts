@@ -34,11 +34,22 @@ type AttackTarget = Pick<
   "id" | "x" | "z" | "hp" | "shields" | "maxShields"
 >;
 
+const BASE_WEAPON_STATS: Pick<ShipStats, "weaponRange" | "weaponCooldown" | "weaponDamage"> =
+  {
+    weaponRange: 18,
+    weaponCooldown: 1.6,
+    weaponDamage: 12,
+  };
+
 export const simulate = ({ units, bases, getStats, dt }: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
     const stats = getStats(unit);
     updateUnit(unit, units, bases, stats, dt);
+  }
+  const baseList = Array.from(bases.values());
+  for (const base of baseList) {
+    updateBase(base, units, bases, BASE_WEAPON_STATS, dt);
   }
   resolveUnitCollisions(unitList);
 };
@@ -198,6 +209,9 @@ const distance = (ax: number, az: number, bx: number, bz: number) =>
 const isEnemy = (unit: UnitSchema, target: UnitSchema | BaseSchema) =>
   target.owner !== unit.owner;
 
+const isEnemyBase = (base: BaseSchema, target: UnitSchema | BaseSchema) =>
+  target.owner !== base.owner;
+
 const findAutoTarget = (
   unit: UnitSchema,
   units: UnitCollection,
@@ -240,6 +254,66 @@ const findAutoTarget = (
     return null;
   }
   return { target: closest, distance: closestDistance };
+};
+
+const updateBase = (
+  base: BaseSchema,
+  units: UnitCollection,
+  bases: BaseCollection,
+  stats: Pick<ShipStats, "weaponRange" | "weaponCooldown" | "weaponDamage">,
+  dt: number,
+) => {
+  const weaponMounts = Math.max(0, base.weaponMounts ?? 0);
+  if (base.weaponCooldownLeft > 0) {
+    base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
+  }
+  if (weaponMounts <= 0) {
+    return;
+  }
+  if (base.weaponCooldownLeft > 0) {
+    return;
+  }
+  let closest: AttackTarget | null = null;
+  let closestDistance = 0;
+  for (const target of units.values()) {
+    if (!isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(base.x, base.z, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  for (const target of bases.values()) {
+    if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(base.x, base.z, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  if (!closest) {
+    return;
+  }
+  base.weaponCooldownLeft = stats.weaponCooldown;
+  let remainingDamage = stats.weaponDamage * weaponMounts;
+  if (closest.shields > 0) {
+    const absorbed = Math.min(closest.shields, remainingDamage);
+    closest.shields = Math.max(0, closest.shields - absorbed);
+    remainingDamage -= absorbed;
+  }
+  if (remainingDamage > 0) {
+    closest.hp = Math.max(0, closest.hp - remainingDamage);
+  }
 };
 
 const UNIT_COLLISION_RADIUS = 2.6;

@@ -37,6 +37,8 @@ export class BaseSchema extends Schema {
   @type("number") hp = 400;
   @type("number") shields = 0;
   @type("number") maxShields = 0;
+  @type("number") weaponMounts = 0;
+  @type("number") weaponCooldownLeft = 0;
   @type("number") resourceStock = 0;
 }
 
