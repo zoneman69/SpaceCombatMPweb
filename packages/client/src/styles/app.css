@@ -304,16 +304,19 @@ body.tactical-view-scroll-locked {
 }
 
 .tactical-view {
-  display: grid;
-  gap: 16px;
-  height: 100%;
+  position: relative;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background: #0b1226;
 }
 
 .tactical-canvas {
-  position: relative;
+  position: absolute;
+  inset: 0;
   width: 100%;
-  height: clamp(360px, 65vh, 720px);
-  border-radius: 16px;
+  height: 100%;
+  border-radius: 0;
   overflow: hidden;
   border: 1px solid #1f2a46;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
@@ -331,6 +334,69 @@ body.tactical-view-scroll-locked {
   border: 1px solid rgba(250, 204, 21, 0.8);
   background: rgba(250, 204, 21, 0.15);
   pointer-events: none;
+}
+
+.tactical-sidebar {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: min(420px, 90vw);
+  height: 100%;
+  background: rgba(9, 14, 28, 0.92);
+  border-left: 1px solid rgba(43, 57, 92, 0.8);
+  box-shadow: -20px 0 40px rgba(5, 10, 24, 0.45);
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  z-index: 4;
+}
+
+.tactical-sidebar.open {
+  transform: translateX(0);
+}
+
+.tactical-sidebar-inner {
+  height: 100%;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tactical-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 14px;
+  background: rgba(13, 20, 36, 0.78);
+  border: 1px solid rgba(43, 57, 92, 0.7);
+}
+
+.tactical-panel--primary {
+  background: rgba(20, 32, 58, 0.9);
+  border-color: rgba(96, 165, 250, 0.45);
+}
+
+.tactical-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.tactical-sidebar-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 5;
+  padding: 8px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.5);
+  background: rgba(15, 23, 42, 0.8);
+  color: #e0f2fe;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .tactical-hud {
@@ -484,6 +550,11 @@ body.tactical-view-scroll-locked {
   grid-template-rows: auto 1fr;
   padding: 40px 40px 32px;
   gap: 24px;
+}
+
+.game-shell--tactical {
+  padding: 0;
+  grid-template-rows: 1fr;
 }
 
 .game-header {
