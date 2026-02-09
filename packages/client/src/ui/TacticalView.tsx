@@ -13,6 +13,7 @@ import type {
 type TacticalViewProps = {
   room: Room<SpaceState> | null;
   localSessionId: string | null;
+  onExit?: () => void;
 };
 
 type Selection = { id: string } | null;
@@ -110,7 +111,11 @@ const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
 const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
 
-export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
+export default function TacticalView({
+  room,
+  localSessionId,
+  onExit,
+}: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -166,6 +171,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("squad");
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [selectionBox, setSelectionBox] = useState<{
     left: number;
     top: number;
@@ -1606,308 +1612,270 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           />
         )}
       </div>
-      <div className="tactical-hud">
-        <div>
-          <p className="hud-title">Squad Tactical View</p>
-          <p className="hud-copy">
-            Drag to box-select multiple ships, then click the field to issue
-            group orders. Use right-drag to rotate, middle-drag or WASD/arrow
-            keys to pan, and scroll to zoom the camera.
-          </p>
-          <div className="hud-actions">
-            <button
-              className="hud-button"
-              type="button"
-              onClick={() => setCameraMode("squad")}
-              disabled={cameraMode === "squad"}
-            >
-              Track squad
-            </button>
-            <button
-              className="hud-button"
-              type="button"
-              onClick={() => setCameraMode("selected")}
-              disabled={cameraMode === "selected" || !selection?.id}
-            >
-              Track selected
-            </button>
-            <button
-              className="hud-button"
-              type="button"
-              onClick={() => setCameraMode("free")}
-              disabled={cameraMode === "free"}
-            >
-              Free camera
-            </button>
-          </div>
-        </div>
-        <div className="hud-status">
-          <span>Active ships</span>
-          <strong>{unitCount}</strong>
-        </div>
-      </div>
-      <div className="tactical-hud tactical-hud-secondary">
-        <div>
-          <p className="hud-title">
-            {selectedUnit ? "Unit status" : "No unit selected"}
-          </p>
-          {selectedUnit ? (
-            <p className="hud-copy">
-              {selectedUnitCount > 1
-                ? `${selectedUnitCount} units selected · `
-                : ""}
-              Hull {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
-              {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
-              {selectedSpeed.toFixed(1)} · Cargo{" "}
-              {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
-              Type {selectedUnitType} · Weapon {selectedUnitWeaponType} · Mounts{" "}
-              {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Order{" "}
-              {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
-              {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
-              {selectedUnit.owner}.
-            </p>
-          ) : (
-            <p className="hud-copy">
-              Click one of your ships to set it as the active unit.
-            </p>
-          )}
-        </div>
-      </div>
-      <div className="tactical-hud tactical-hud-secondary">
-        <div>
-          <p className="hud-title">
-            {selectedBase ? "Base command" : "No base selected"}
-          </p>
-          {selectedBase ? (
-            <>
+      <aside
+        className={`tactical-sidebar ${isSidebarOpen ? "open" : "closed"}`}
+        aria-hidden={!isSidebarOpen}
+      >
+        <div className="tactical-sidebar-inner">
+          <section className="tactical-panel tactical-panel--primary">
+            <div>
+              <p className="hud-title">Squad Tactical View</p>
               <p className="hud-copy">
-                Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
-                {selectedBase.owner} · Modules {baseModules.length} · Turrets{" "}
-                {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}.
+                Drag to box-select multiple ships, then click the field to issue
+                group orders. Use right-drag to rotate, middle-drag or WASD/arrow
+                keys to pan, and scroll to zoom the camera.
               </p>
-              <p className="hud-copy">
-                Hull: {Math.max(0, Math.floor(selectedBase.hp))} · Shields:{" "}
-                {Math.max(0, Math.floor(selectedBase.shields))}/
-                {Math.max(0, Math.floor(selectedBase.maxShields))}
-              </p>
+            </div>
+            {onExit ? (
+              <button className="hud-button" type="button" onClick={onExit}>
+                Return to lobby
+              </button>
+            ) : null}
+          </section>
+
+          <section className="tactical-panel">
+            <div className="tactical-panel-header">
+              <p className="hud-title">Camera controls</p>
+              <div className="hud-status">
+                <span>Active ships</span>
+                <strong>{unitCount}</strong>
+              </div>
+            </div>
+            <div className="hud-actions">
               <button
                 className="hud-button"
                 type="button"
-                disabled={!canBuildCollector}
-                onClick={() => {
-                  if (!room || !selectedBase) {
-                    return;
-                  }
-                  room.send("base:build", {
-                    baseId: selectedBase.id,
-                    unitType: "RESOURCE_COLLECTOR",
-                  });
-                }}
+                onClick={() => setCameraMode("squad")}
+                disabled={cameraMode === "squad"}
               >
-                Build resource collector ({RESOURCE_COLLECTOR_COST})
+                Track squad
               </button>
               <button
                 className="hud-button"
                 type="button"
-                disabled={!canBuildFighter}
-                onClick={() => {
-                  if (!room || !selectedBase) {
-                    return;
-                  }
-                  room.send("base:build", {
-                    baseId: selectedBase.id,
-                    unitType: "FIGHTER",
-                  });
-                }}
+                onClick={() => setCameraMode("selected")}
+                disabled={cameraMode === "selected" || !selection?.id}
               >
-                Build fighter ({FIGHTER_COST})
+                Track selected
               </button>
-            </>
-          ) : (
-            <p className="hud-copy">
-              Click your base to open the build menu.
+              <button
+                className="hud-button"
+                type="button"
+                onClick={() => setCameraMode("free")}
+                disabled={cameraMode === "free"}
+              >
+                Free camera
+              </button>
+            </div>
+          </section>
+
+          <section className="tactical-panel">
+            <p className="hud-title">
+              {selectedUnit ? "Unit status" : "No unit selected"}
             </p>
-          )}
-        </div>
-      </div>
-      <div className="tactical-hud tactical-hud-secondary">
-        <div>
-          <p className="hud-title">Station modules</p>
-          <p className="hud-copy">
-            Purchase orbital modules around your base to unlock tech upgrades,
-            repairs, and weapon outfitting.
-          </p>
-          <div className="mount-shop">
-            <div className="mount-card">
-              <div className="mount-card-header">
-                <div>
-                  <p className="mount-label">Research</p>
-                  <p className="mount-title">Tech shop</p>
-                </div>
-                <span className="mount-badge">{hasTechShop ? "Online" : "Offline"}</span>
-              </div>
-              <div className="mount-card-body">
-                <p className="mount-meta">
-                  Cost: {MODULE_TECH_SHOP_COST} · Upgrade ship stats.
+            {selectedUnit ? (
+              <p className="hud-copy">
+                {selectedUnitCount > 1
+                  ? `${selectedUnitCount} units selected · `
+                  : ""}
+                Hull {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
+                {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
+                {selectedSpeed.toFixed(1)} · Cargo{" "}
+                {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
+                Type {selectedUnitType} · Weapon {selectedUnitWeaponType} · Mounts{" "}
+                {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Order{" "}
+                {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
+                {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
+                {selectedUnit.owner}.
+              </p>
+            ) : (
+              <p className="hud-copy">
+                Click one of your ships to set it as the active unit.
+              </p>
+            )}
+          </section>
+
+          <section className="tactical-panel">
+            <p className="hud-title">
+              {selectedBase ? "Base command" : "No base selected"}
+            </p>
+            {selectedBase ? (
+              <>
+                <p className="hud-copy">
+                  Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
+                  {selectedBase.owner} · Modules {baseModules.length} · Turrets{" "}
+                  {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}.
+                </p>
+                <p className="hud-copy">
+                  Hull: {Math.max(0, Math.floor(selectedBase.hp))} · Shields:{" "}
+                  {Math.max(0, Math.floor(selectedBase.shields))}/
+                  {Math.max(0, Math.floor(selectedBase.maxShields))}
                 </p>
                 <button
-                  className="hud-button mount-action"
+                  className="hud-button"
                   type="button"
-                  disabled={!canPurchaseTechShop}
+                  disabled={!canBuildCollector}
                   onClick={() => {
                     if (!room || !selectedBase) {
                       return;
                     }
-                    room.send("base:purchaseModule", {
+                    room.send("base:build", {
                       baseId: selectedBase.id,
-                      moduleType: "TECH_SHOP",
+                      unitType: "RESOURCE_COLLECTOR",
                     });
                   }}
                 >
-                  {hasTechShop ? "Tech shop installed" : "Purchase tech shop"}
+                  Build resource collector ({RESOURCE_COLLECTOR_COST})
                 </button>
-              </div>
-            </div>
-            <div className="mount-card">
-              <div className="mount-card-header">
-                <div>
-                  <p className="mount-label">Maintenance</p>
-                  <p className="mount-title">Repair bay</p>
-                </div>
-                <span className="mount-badge">
-                  {hasRepairBay ? "Operational" : "Offline"}
-                </span>
-              </div>
-              <div className="mount-card-body">
-                <p className="mount-meta">
-                  Cost: {MODULE_REPAIR_BAY_COST} · Auto-repairs nearby ships.
-                </p>
                 <button
-                  className="hud-button mount-action"
+                  className="hud-button"
                   type="button"
-                  disabled={!canPurchaseRepairBay}
+                  disabled={!canBuildFighter}
                   onClick={() => {
                     if (!room || !selectedBase) {
                       return;
                     }
-                    room.send("base:purchaseModule", {
+                    room.send("base:build", {
                       baseId: selectedBase.id,
-                      moduleType: "REPAIR_BAY",
+                      unitType: "FIGHTER",
                     });
                   }}
                 >
-                  {hasRepairBay ? "Repair bay installed" : "Purchase repair bay"}
+                  Build fighter ({FIGHTER_COST})
                 </button>
-              </div>
-            </div>
-            <div className="mount-card">
-              <div className="mount-card-header">
-                <div>
-                  <p className="mount-label">Loadout</p>
-                  <p className="mount-title">Garage</p>
+              </>
+            ) : (
+              <p className="hud-copy">
+                Click your base to open the build menu.
+              </p>
+            )}
+          </section>
+
+          <section className="tactical-panel">
+            <p className="hud-title">Station modules</p>
+            <p className="hud-copy">
+              Purchase orbital modules around your base to unlock tech upgrades,
+              repairs, and weapon outfitting.
+            </p>
+            <div className="mount-shop">
+              <div className="mount-card">
+                <div className="mount-card-header">
+                  <div>
+                    <p className="mount-label">Research</p>
+                    <p className="mount-title">Tech shop</p>
+                  </div>
+                  <span className="mount-badge">
+                    {hasTechShop ? "Online" : "Offline"}
+                  </span>
                 </div>
-                <span className="mount-badge">{hasGarage ? "Ready" : "Offline"}</span>
-              </div>
-              <div className="mount-card-body">
-                <p className="mount-meta">
-                  Cost: {MODULE_GARAGE_COST} · Install new weapon types.
-                </p>
-                <button
-                  className="hud-button mount-action"
-                  type="button"
-                  disabled={!canPurchaseGarage}
-                  onClick={() => {
-                    if (!room || !selectedBase) {
-                      return;
-                    }
-                    room.send("base:purchaseModule", {
-                      baseId: selectedBase.id,
-                      moduleType: "GARAGE",
-                    });
-                  }}
-                >
-                  {hasGarage ? "Garage installed" : "Purchase garage"}
-                </button>
-              </div>
-            </div>
-            <div className="mount-card">
-              <div className="mount-card-header">
-                <div>
-                  <p className="mount-label">Defense ring</p>
-                  <p className="mount-title">Weapon turret</p>
-                </div>
-                <span className="mount-badge">
-                  {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}
-                </span>
-              </div>
-              <div className="mount-card-body">
-                <p className="mount-meta">
-                  Cost: {MODULE_WEAPON_TURRET_COST} · Choose turret weapon type.
-                </p>
-                <label className="mount-select">
-                  Weapon type
-                  <select
-                    value={moduleWeaponType}
-                    onChange={(event) =>
-                      setModuleWeaponType(
-                        event.target.value as (typeof WEAPON_TYPES)[number],
-                      )
-                    }
+                <div className="mount-card-body">
+                  <p className="mount-meta">
+                    Cost: {MODULE_TECH_SHOP_COST} · Upgrade ship stats.
+                  </p>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseTechShop}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "TECH_SHOP",
+                      });
+                    }}
                   >
-                    {WEAPON_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  className="hud-button mount-action"
-                  type="button"
-                  disabled={!canPurchaseWeaponTurret}
-                  onClick={() => {
-                    if (!room || !selectedBase) {
-                      return;
-                    }
-                    room.send("base:purchaseModule", {
-                      baseId: selectedBase.id,
-                      moduleType: "WEAPON_TURRET",
-                      weaponType: moduleWeaponType,
-                    });
-                  }}
-                >
-                  Install turret module
-                </button>
+                    {hasTechShop ? "Tech shop installed" : "Purchase tech shop"}
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div className="tactical-hud tactical-hud-secondary">
-        <div>
-          <p className="hud-title">
-            {selectedModule ? "Module access" : "No module selected"}
-          </p>
-          {selectedModule ? (
-            <>
-              <p className="hud-copy">
-                {selectedModule.moduleType} · Weapon{" "}
-                {selectedModule.weaponType || "n/a"} ·{" "}
-                {selectedModule.active ? "Active" : "Offline"}
-              </p>
-              {selectedModule.moduleType === "GARAGE" && selectedUnit ? (
-                <>
-                  <p className="hud-copy">
-                    {selectedUnitAtModule
-                      ? "Unit docked. Choose a weapon loadout."
-                      : "Move a ship here to install new weapons."}
+              <div className="mount-card">
+                <div className="mount-card-header">
+                  <div>
+                    <p className="mount-label">Maintenance</p>
+                    <p className="mount-title">Repair bay</p>
+                  </div>
+                  <span className="mount-badge">
+                    {hasRepairBay ? "Operational" : "Offline"}
+                  </span>
+                </div>
+                <div className="mount-card-body">
+                  <p className="mount-meta">
+                    Cost: {MODULE_REPAIR_BAY_COST} · Auto-repairs nearby ships.
+                  </p>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseRepairBay}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "REPAIR_BAY",
+                      });
+                    }}
+                  >
+                    {hasRepairBay
+                      ? "Repair bay installed"
+                      : "Purchase repair bay"}
+                  </button>
+                </div>
+              </div>
+              <div className="mount-card">
+                <div className="mount-card-header">
+                  <div>
+                    <p className="mount-label">Loadout</p>
+                    <p className="mount-title">Garage</p>
+                  </div>
+                  <span className="mount-badge">
+                    {hasGarage ? "Ready" : "Offline"}
+                  </span>
+                </div>
+                <div className="mount-card-body">
+                  <p className="mount-meta">
+                    Cost: {MODULE_GARAGE_COST} · Install new weapon types.
+                  </p>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseGarage}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "GARAGE",
+                      });
+                    }}
+                  >
+                    {hasGarage ? "Garage installed" : "Purchase garage"}
+                  </button>
+                </div>
+              </div>
+              <div className="mount-card">
+                <div className="mount-card-header">
+                  <div>
+                    <p className="mount-label">Defense ring</p>
+                    <p className="mount-title">Weapon turret</p>
+                  </div>
+                  <span className="mount-badge">
+                    {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}
+                  </span>
+                </div>
+                <div className="mount-card-body">
+                  <p className="mount-meta">
+                    Cost: {MODULE_WEAPON_TURRET_COST} · Choose turret weapon type.
                   </p>
                   <label className="mount-select">
                     Weapon type
                     <select
-                      value={garageWeaponType}
+                      value={moduleWeaponType}
                       onChange={(event) =>
-                        setGarageWeaponType(
+                        setModuleWeaponType(
                           event.target.value as (typeof WEAPON_TYPES)[number],
                         )
                       }
@@ -1922,87 +1890,152 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
                   <button
                     className="hud-button mount-action"
                     type="button"
-                    disabled={!selectedUnitAtModule || !room || !selectedBase}
+                    disabled={!canPurchaseWeaponTurret}
                     onClick={() => {
-                      if (!room || !selectedModule || !selectedUnit) {
+                      if (!room || !selectedBase) {
                         return;
                       }
-                      room.send("module:garageWeapon", {
-                        moduleId: selectedModule.id,
-                        unitId: selectedUnit.id,
-                        weaponType: garageWeaponType,
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "WEAPON_TURRET",
+                        weaponType: moduleWeaponType,
                       });
                     }}
                   >
-                    Install {garageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
+                    Install turret module
                   </button>
-                </>
-              ) : null}
-              {selectedModule.moduleType === "TECH_SHOP" && selectedUnit ? (
-                <>
-                  <p className="hud-copy">
-                    {selectedUnitAtModule
-                      ? "Upgrade ship stats for resources."
-                      : "Move a ship here to access upgrades."}
-                  </p>
-                  <div className="module-actions">
-                    {Object.entries(TECH_UPGRADE_COSTS).map(([key, cost]) => (
-                      <button
-                        key={key}
-                        className="hud-button mount-action"
-                        type="button"
-                        disabled={!selectedUnitAtModule || !room || !selectedBase}
-                        onClick={() => {
-                          if (!room || !selectedModule || !selectedUnit) {
-                            return;
-                          }
-                          room.send("module:techUpgrade", {
-                            moduleId: selectedModule.id,
-                            unitId: selectedUnit.id,
-                            upgradeType: key,
-                          });
-                        }}
-                      >
-                        Upgrade {key} ({cost})
-                      </button>
-                    ))}
-                  </div>
-                </>
-              ) : null}
-              {selectedModule.moduleType === "REPAIR_BAY" ? (
-                <p className="hud-copy">
-                  Dock ships here to auto-repair hull and shields.
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <p className="hud-copy">
-              Click a module to manage its services and send ships to interact.
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section className="tactical-panel">
+            <p className="hud-title">
+              {selectedModule ? "Module access" : "No module selected"}
             </p>
-          )}
+            {selectedModule ? (
+              <>
+                <p className="hud-copy">
+                  {selectedModule.moduleType} · Weapon{" "}
+                  {selectedModule.weaponType || "n/a"} ·{" "}
+                  {selectedModule.active ? "Active" : "Offline"}
+                </p>
+                {selectedModule.moduleType === "GARAGE" && selectedUnit ? (
+                  <>
+                    <p className="hud-copy">
+                      {selectedUnitAtModule
+                        ? "Unit docked. Choose a weapon loadout."
+                        : "Move a ship here to install new weapons."}
+                    </p>
+                    <label className="mount-select">
+                      Weapon type
+                      <select
+                        value={garageWeaponType}
+                        onChange={(event) =>
+                          setGarageWeaponType(
+                            event.target.value as (typeof WEAPON_TYPES)[number],
+                          )
+                        }
+                      >
+                        {WEAPON_TYPES.map((type) => (
+                          <option key={type} value={type}>
+                            {type}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!selectedUnitAtModule || !room || !selectedBase}
+                      onClick={() => {
+                        if (!room || !selectedModule || !selectedUnit) {
+                          return;
+                        }
+                        room.send("module:garageWeapon", {
+                          moduleId: selectedModule.id,
+                          unitId: selectedUnit.id,
+                          weaponType: garageWeaponType,
+                        });
+                      }}
+                    >
+                      Install {garageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
+                    </button>
+                  </>
+                ) : null}
+                {selectedModule.moduleType === "TECH_SHOP" && selectedUnit ? (
+                  <>
+                    <p className="hud-copy">
+                      {selectedUnitAtModule
+                        ? "Upgrade ship stats for resources."
+                        : "Move a ship here to access upgrades."}
+                    </p>
+                    <div className="module-actions">
+                      {Object.entries(TECH_UPGRADE_COSTS).map(([key, cost]) => (
+                        <button
+                          key={key}
+                          className="hud-button mount-action"
+                          type="button"
+                          disabled={!selectedUnitAtModule || !room || !selectedBase}
+                          onClick={() => {
+                            if (!room || !selectedModule || !selectedUnit) {
+                              return;
+                            }
+                            room.send("module:techUpgrade", {
+                              moduleId: selectedModule.id,
+                              unitId: selectedUnit.id,
+                              upgradeType: key,
+                            });
+                          }}
+                        >
+                          Upgrade {key} ({cost})
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {selectedModule.moduleType === "REPAIR_BAY" ? (
+                  <p className="hud-copy">
+                    Dock ships here to auto-repair hull and shields.
+                  </p>
+                ) : null}
+              </>
+            ) : (
+              <p className="hud-copy">
+                Click a module to manage its services and send ships to interact.
+              </p>
+            )}
+          </section>
+
+          <section className="tactical-panel">
+            <p className="hud-title">Debug telemetry</p>
+            <p className="hud-copy">
+              Room: {debugInfo.roomId} · Session: {debugInfo.sessionId}
+            </p>
+            <p className="hud-copy">
+              Connected: {debugInfo.hasRoom ? "yes" : "no"} · Units ready:{" "}
+              {debugInfo.hasUnits ? "yes" : "no"} · Unit count:{" "}
+              {debugInfo.unitTotal}
+            </p>
+            <p className="hud-copy">
+              Resources: {resourceCount} · Last resource click:{" "}
+              {lastResourceClick
+                ? `${lastResourceClick.id} (${new Date(
+                    lastResourceClick.at,
+                  ).toLocaleTimeString()})`
+                : "n/a"}
+            </p>
+          </section>
         </div>
-      </div>
-      <div className="tactical-hud tactical-hud-secondary">
-        <div>
-          <p className="hud-title">Debug telemetry</p>
-          <p className="hud-copy">
-            Room: {debugInfo.roomId} · Session: {debugInfo.sessionId}
-          </p>
-          <p className="hud-copy">
-            Connected: {debugInfo.hasRoom ? "yes" : "no"} · Units ready:{" "}
-            {debugInfo.hasUnits ? "yes" : "no"} · Unit count:{" "}
-            {debugInfo.unitTotal}
-          </p>
-          <p className="hud-copy">
-            Resources: {resourceCount} · Last resource click:{" "}
-            {lastResourceClick
-              ? `${lastResourceClick.id} (${new Date(
-                  lastResourceClick.at,
-                ).toLocaleTimeString()})`
-              : "n/a"}
-          </p>
-        </div>
-      </div>
+      </aside>
+      <button
+        className="tactical-sidebar-toggle"
+        type="button"
+        onClick={() => setIsSidebarOpen((prev) => !prev)}
+        aria-expanded={isSidebarOpen}
+      >
+        {isSidebarOpen ? "Hide panel" : "Show panel"}
+      </button>
     </div>
   );
 }

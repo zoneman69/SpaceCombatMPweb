@@ -407,30 +407,12 @@ export default function App() {
 
   if (view === "game") {
     return (
-      <div className="game-shell">
-        <header className="game-header">
-          <div>
-            <p className="eyebrow">Mission briefing</p>
-            <h1>Engage in the outer rim.</h1>
-            <p className="subhead">
-              Full tactical view deployed. Your squad has entered the conflict
-              zone.
-            </p>
-          </div>
-          <button
-            className="btn"
-            type="button"
-            onClick={() => setView("lobby")}
-          >
-            Return to lobby
-          </button>
-        </header>
-        <section className="game-stage">
-          <TacticalView
-            room={room}
-            localSessionId={localSessionId}
-          />
-        </section>
+      <div className="game-shell game-shell--tactical">
+        <TacticalView
+          room={room}
+          localSessionId={localSessionId}
+          onExit={() => setView("lobby")}
+        />
       </div>
     );
   }
