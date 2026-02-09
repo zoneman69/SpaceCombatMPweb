@@ -82,6 +82,16 @@ const updateUnit = (
     }
   }
 
+  if (!hasTarget) {
+    const autoTarget = findAutoTarget(unit, units, bases, stats);
+    if (autoTarget) {
+      unit.tgt = autoTarget.target.id;
+      maybeFire(unit, autoTarget.target, stats, autoTarget.distance);
+    } else {
+      unit.tgt = "";
+    }
+  }
+
   if (hasMoveTarget) {
     desiredX = unit.orderX;
     desiredZ = unit.orderZ;
@@ -184,6 +194,53 @@ const maybeFire = (
 
 const distance = (ax: number, az: number, bx: number, bz: number) =>
   Math.hypot(ax - bx, az - bz);
+
+const isEnemy = (unit: UnitSchema, target: UnitSchema | BaseSchema) =>
+  target.owner !== unit.owner;
+
+const findAutoTarget = (
+  unit: UnitSchema,
+  units: UnitCollection,
+  bases: BaseCollection,
+  stats: ShipStats,
+) => {
+  const weaponMounts = Math.max(0, unit.weaponMounts ?? 0);
+  if (weaponMounts <= 0) {
+    return null;
+  }
+  let closest: AttackTarget | null = null;
+  let closestDistance = 0;
+  for (const target of units.values()) {
+    if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(unit.x, unit.z, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  for (const target of bases.values()) {
+    if (!isEnemy(unit, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(unit.x, unit.z, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  if (!closest) {
+    return null;
+  }
+  return { target: closest, distance: closestDistance };
+};
 
 const UNIT_COLLISION_RADIUS = 2.6;
 const COLLISION_SLOP = 0.01;
