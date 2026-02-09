@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import type {
   BaseSchema,
+  BaseModuleSchema,
   ResourceNodeSchema,
   SpaceState,
   UnitSchema,
@@ -26,6 +27,10 @@ type MapRender = {
   mesh: THREE.Mesh;
 };
 
+type ModuleRender = {
+  mesh: THREE.Mesh;
+};
+
 type DebugUnit = {
   id: string;
   owner: string;
@@ -43,9 +48,10 @@ type FiringEffect = {
 
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
+    const bonus = unit.radarRangeBonus ?? 0;
     return unit.unitType === "FIGHTER"
-      ? FOG_FIGHTER_VISION_RADIUS
-      : FOG_COLLECTOR_VISION_RADIUS;
+      ? FOG_FIGHTER_VISION_RADIUS + bonus
+      : FOG_COLLECTOR_VISION_RADIUS + bonus;
   }
   return FOG_COLLECTOR_VISION_RADIUS;
 };
@@ -57,6 +63,12 @@ const UNIT_COLORS = {
 };
 const BASE_COLOR = new THREE.Color("#a855f7");
 const RESOURCE_COLOR = new THREE.Color("#34d399");
+const MODULE_COLORS = {
+  TECH_SHOP: new THREE.Color("#38bdf8"),
+  REPAIR_BAY: new THREE.Color("#f472b6"),
+  GARAGE: new THREE.Color("#fbbf24"),
+  WEAPON_TURRET: new THREE.Color("#fb7185"),
+};
 
 const PLANE_SIZE = 720;
 const GRID_DIVISIONS = 36;
@@ -74,9 +86,20 @@ const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
 const UNIT_WEAPON_MOUNT_COST = 80;
-const BASE_WEAPON_MOUNT_COST = 120;
+const MODULE_TECH_SHOP_COST = 240;
+const MODULE_REPAIR_BAY_COST = 200;
+const MODULE_GARAGE_COST = 260;
+const MODULE_WEAPON_TURRET_COST = 140;
+const TECH_UPGRADE_COSTS = {
+  SHIELDS: 80,
+  HULL: 90,
+  SPEED: 110,
+  RADAR: 75,
+  WEAPON: 120,
+};
 const MAX_UNIT_WEAPON_MOUNTS = 3;
-const MAX_BASE_WEAPON_MOUNTS = 4;
+const WEAPON_TURRET_RING_COUNT = 8;
+const MODULE_INTERACTION_RANGE = 6;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
@@ -84,6 +107,7 @@ const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
+const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
 
 export default function TacticalView({ room, localSessionId }: TacticalViewProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -92,14 +116,17 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const requestRef = useRef<number | null>(null);
   const unitsRef = useRef<SpaceState["units"] | null>(null);
   const basesRef = useRef<SpaceState["bases"] | null>(null);
+  const modulesRef = useRef<SpaceState["modules"] | null>(null);
   const resourcesRef = useRef<SpaceState["resources"] | null>(null);
   const meshesRef = useRef<Map<string, UnitRender>>(new Map());
   const baseMeshesRef = useRef<Map<string, MapRender>>(new Map());
+  const moduleMeshesRef = useRef<Map<string, ModuleRender>>(new Map());
   const resourceMeshesRef = useRef<Map<string, MapRender>>(new Map());
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
+  const selectedModuleIdRef = useRef<string | null>(null);
   const cameraModeRef = useRef<CameraMode>("squad");
   const firingEffectsRef = useRef<FiringEffect[]>([]);
   const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
@@ -136,6 +163,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const [selectedSpeed, setSelectedSpeed] = useState(0);
   const [unitCount, setUnitCount] = useState(0);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [selectedModuleId, setSelectedModuleId] = useState<string | null>(null);
   const [cameraMode, setCameraMode] = useState<CameraMode>("squad");
   const [selectionBox, setSelectionBox] = useState<{
     left: number;
@@ -162,6 +190,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     hasUnits: false,
     unitTotal: 0,
   });
+  const [moduleWeaponType, setModuleWeaponType] =
+    useState<(typeof WEAPON_TYPES)[number]>("LASER");
+  const [garageWeaponType, setGarageWeaponType] =
+    useState<(typeof WEAPON_TYPES)[number]>("LASER");
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -195,6 +227,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   useEffect(() => {
     selectedBaseIdRef.current = selectedBaseId;
   }, [selectedBaseId]);
+
+  useEffect(() => {
+    selectedModuleIdRef.current = selectedModuleId;
+  }, [selectedModuleId]);
 
   useEffect(() => {
     if (!room) {
@@ -285,6 +321,30 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     };
     const baseGeometry = new THREE.CylinderGeometry(4.4, 5.6, 4, 12);
     const resourceGeometry = new THREE.OctahedronGeometry(3.4, 0);
+    const techGeometry = new THREE.DodecahedronGeometry(2.4, 0);
+    const repairCore = new THREE.BoxGeometry(1.4, 1.2, 4.2);
+    const repairCross = new THREE.BoxGeometry(4.2, 1.2, 1.4);
+    const repairGeometry =
+      mergeGeometries([repairCore, repairCross]) ?? repairCore.clone();
+    repairCore.dispose();
+    repairCross.dispose();
+    const garageGeometry = new THREE.BoxGeometry(3.2, 2.2, 3.2);
+    const turretGeometry = new THREE.CylinderGeometry(1.6, 1.6, 2.8, 8);
+
+    const getModuleGeometry = (module: BaseModuleSchema) => {
+      switch (module.moduleType) {
+        case "TECH_SHOP":
+          return techGeometry;
+        case "REPAIR_BAY":
+          return repairGeometry;
+        case "GARAGE":
+          return garageGeometry;
+        case "WEAPON_TURRET":
+          return turretGeometry;
+        default:
+          return garageGeometry;
+      }
+    };
 
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
@@ -339,6 +399,34 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
       baseMeshesRef.current.delete(baseId);
+    };
+
+    const ensureModuleMesh = (module: BaseModuleSchema) => {
+      if (moduleMeshesRef.current.has(module.id)) {
+        return;
+      }
+      const material = new THREE.MeshStandardMaterial({
+        color:
+          MODULE_COLORS[module.moduleType as keyof typeof MODULE_COLORS]?.clone() ??
+          MODULE_COLORS.GARAGE.clone(),
+        emissive: new THREE.Color("#10203f"),
+      });
+      const mesh = new THREE.Mesh(getModuleGeometry(module).clone(), material);
+      mesh.position.set(module.x, 0, module.z);
+      mesh.userData = { id: module.id };
+      scene.add(mesh);
+      moduleMeshesRef.current.set(module.id, { mesh });
+    };
+
+    const removeModuleMesh = (moduleId: string) => {
+      const render = moduleMeshesRef.current.get(moduleId);
+      if (!render) {
+        return;
+      }
+      scene.remove(render.mesh);
+      render.mesh.geometry.dispose();
+      (render.mesh.material as THREE.Material).dispose();
+      moduleMeshesRef.current.delete(moduleId);
     };
 
     const getResourceScale = (resource: ResourceNodeSchema) => {
@@ -430,6 +518,16 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       resources.onRemove((resource) => removeResourceMesh(resource.id));
     };
 
+    const bindModules = (modules: SpaceState["modules"]) => {
+      if (modulesRef.current === modules) {
+        return;
+      }
+      modulesRef.current = modules;
+      modules.forEach((module) => ensureModuleMesh(module));
+      modules.onAdd((module) => ensureModuleMesh(module));
+      modules.onRemove((module) => removeModuleMesh(module.id));
+    };
+
     let bindPoll: number | null = null;
     let debugPoll: number | null = null;
 
@@ -475,12 +573,19 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       bindResources(room.state.resources);
     }
 
+    if (room?.state?.modules) {
+      bindModules(room.state.modules);
+    }
+
     room?.onStateChange((state) => {
       if (state?.bases) {
         bindBases(state.bases);
       }
       if (state?.resources) {
         bindResources(state.resources);
+      }
+      if (state?.modules) {
+        bindModules(state.modules);
       }
     });
 
@@ -660,6 +765,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         }
         render.mesh.position.set(base.x, 0, base.z);
       });
+      modulesRef.current?.forEach((module) => {
+        const render = moduleMeshesRef.current.get(module.id);
+        if (!render) {
+          return;
+        }
+        render.mesh.position.set(module.x, 0, module.z);
+      });
       resourcesRef.current?.forEach((resource) => {
         const render = resourceMeshesRef.current.get(resource.id);
         if (!render) {
@@ -716,6 +828,15 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           base.owner === localOwner || isVisibleInFog(base.x, base.z);
         render.mesh.visible = isVisible;
       });
+      moduleMeshesRef.current.forEach((render, moduleId) => {
+        const module = modulesRef.current?.get(moduleId);
+        if (!module) {
+          return;
+        }
+        const isVisible =
+          module.owner === localOwner || isVisibleInFog(module.x, module.z);
+        render.mesh.visible = isVisible;
+      });
       resourceMeshesRef.current.forEach((render, resourceId) => {
         const resource = resourcesRef.current?.get(resourceId);
         if (!resource) {
@@ -738,6 +859,13 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         const baseRender = baseMeshesRef.current.get(baseSelectionId);
         if (baseRender && !baseRender.mesh.visible) {
           setSelectedBaseId(null);
+        }
+      }
+      const moduleSelectionId = selectedModuleIdRef.current;
+      if (moduleSelectionId) {
+        const moduleRender = moduleMeshesRef.current.get(moduleSelectionId);
+        if (moduleRender && !moduleRender.mesh.visible) {
+          setSelectedModuleId(null);
         }
       }
       const activeCameraMode = cameraModeRef.current;
@@ -832,6 +960,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       collectorGeometry.dispose();
       baseGeometry.dispose();
       resourceGeometry.dispose();
+      techGeometry.dispose();
+      repairGeometry.dispose();
+      garageGeometry.dispose();
+      turretGeometry.dispose();
       meshesRef.current.forEach((render) => {
         render.mesh.geometry.dispose();
         (render.mesh.material as THREE.Material).dispose();
@@ -842,6 +974,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         (render.mesh.material as THREE.Material).dispose();
       });
       baseMeshesRef.current.clear();
+      moduleMeshesRef.current.forEach((render) => {
+        render.mesh.geometry.dispose();
+        (render.mesh.material as THREE.Material).dispose();
+      });
+      moduleMeshesRef.current.clear();
       resourceMeshesRef.current.forEach((render) => {
         render.mesh.geometry.dispose();
         (render.mesh.material as THREE.Material).dispose();
@@ -1130,6 +1267,26 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     pointerNdc.y = -(y / height) * 2 + 1;
     raycaster.setFromCamera(pointerNdc, cameraRef.current);
 
+    const moduleMeshes = Array.from(moduleMeshesRef.current.values()).map(
+      (render) => render.mesh,
+    );
+    const moduleHits = raycaster.intersectObjects(moduleMeshes, false);
+    if (moduleHits.length > 0) {
+      const hitId = moduleHits[0].object.userData.id as string;
+      const module = modulesRef.current?.get(hitId);
+      if (module && module.owner === localSessionId) {
+        setSelectedModuleId(hitId);
+        setSelectedBaseId(null);
+        if (room && selectedUnitIds.length > 0) {
+          room.send("module:visit", {
+            moduleId: hitId,
+            unitIds: selectedUnitIds,
+          });
+        }
+      }
+      return;
+    }
+
     const baseMeshes = Array.from(baseMeshesRef.current.values()).map(
       (render) => render.mesh,
     );
@@ -1139,6 +1296,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       const base = basesRef.current?.get(hitId);
       if (base && base.owner === localSessionId) {
         setSelectedBaseId(hitId);
+        setSelectedModuleId(null);
         setSelection(null);
         setSelectedUnitIds([]);
       } else if (room && selectedUnitIds.length > 0 && base) {
@@ -1150,6 +1308,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
+          setSelectedModuleId(null);
           room.send("command", {
             t: "ATTACK",
             unitIds: weaponUnitIds,
@@ -1158,6 +1317,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         }
       } else {
         setSelectedBaseId(null);
+        setSelectedModuleId(null);
         setSelection(null);
         setSelectedUnitIds([]);
       }
@@ -1176,6 +1336,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         setSelection({ id: hitId });
         setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
+        setSelectedModuleId(null);
       } else if (room && selectedUnitIds.length > 0) {
         const weaponUnitIds = selectedUnitIds.filter((unitId) => {
           const unit =
@@ -1185,6 +1346,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
+          setSelectedModuleId(null);
           room.send("command", {
             t: "ATTACK",
             unitIds: weaponUnitIds,
@@ -1217,6 +1379,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       setLastResourceClick({ id: resourceId, at: Date.now() });
       if (room && selectedUnitIds.length > 0 && resource) {
         setSelectedBaseId(null);
+        setSelectedModuleId(null);
         console.log("[tactical] harvest command", {
           unitIds: selectedUnitIds,
           resourceId: resource.id,
@@ -1238,6 +1401,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       }
       if (selectedUnitIds.length > 0) {
         setSelectedBaseId(null);
+        setSelectedModuleId(null);
         room.send("command", {
           t: "MOVE",
           unitIds: selectedUnitIds,
@@ -1247,6 +1411,7 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       } else {
         setSelection(null);
         setSelectedUnitIds([]);
+        setSelectedModuleId(null);
       }
     }
   };
@@ -1264,12 +1429,42 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
     !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
   const canBuildFighter =
     !!selectedBase && selectedBase.resourceStock >= FIGHTER_COST;
-  const selectedBaseWeaponMounts =
-    selectedBase && "weaponMounts" in selectedBase ? selectedBase.weaponMounts : 0;
-  const canUpgradeBaseWeapons =
+  const selectedModule = selectedModuleId
+    ? modulesRef.current?.get(selectedModuleId) ?? null
+    : null;
+  const baseModules = selectedBase
+    ? Array.from(modulesRef.current?.values() ?? []).filter(
+        (module) => module.baseId === selectedBase.id,
+      )
+    : [];
+  const weaponTurretCount = baseModules.filter(
+    (module) => module.moduleType === "WEAPON_TURRET",
+  ).length;
+  const hasTechShop = baseModules.some(
+    (module) => module.moduleType === "TECH_SHOP",
+  );
+  const hasRepairBay = baseModules.some(
+    (module) => module.moduleType === "REPAIR_BAY",
+  );
+  const hasGarage = baseModules.some(
+    (module) => module.moduleType === "GARAGE",
+  );
+  const canPurchaseTechShop =
     !!selectedBase &&
-    selectedBase.resourceStock >= BASE_WEAPON_MOUNT_COST &&
-    selectedBaseWeaponMounts < MAX_BASE_WEAPON_MOUNTS;
+    !hasTechShop &&
+    selectedBase.resourceStock >= MODULE_TECH_SHOP_COST;
+  const canPurchaseRepairBay =
+    !!selectedBase &&
+    !hasRepairBay &&
+    selectedBase.resourceStock >= MODULE_REPAIR_BAY_COST;
+  const canPurchaseGarage =
+    !!selectedBase &&
+    !hasGarage &&
+    selectedBase.resourceStock >= MODULE_GARAGE_COST;
+  const canPurchaseWeaponTurret =
+    !!selectedBase &&
+    weaponTurretCount < WEAPON_TURRET_RING_COUNT &&
+    selectedBase.resourceStock >= MODULE_WEAPON_TURRET_COST;
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -1299,24 +1494,21 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       : 0;
   const selectedUnitMaxShields =
     selectedUnit && "maxShields" in selectedUnit ? selectedUnit.maxShields : 0;
+  const selectedUnitMaxHp =
+    selectedUnit && "maxHp" in selectedUnit ? selectedUnit.maxHp : 100;
   const selectedUnitWeaponMounts =
     selectedUnit && "weaponMounts" in selectedUnit ? selectedUnit.weaponMounts : 0;
   const selectedUnitTechMounts =
     selectedUnit && "techMounts" in selectedUnit ? selectedUnit.techMounts : 0;
-  const selectedUnitsWithMountSpace = selectedUnitIds.filter((unitId) => {
-    const unit =
-      unitsRef.current?.get(unitId) ?? fallbackUnitsRef.current.get(unitId);
-    if (!unit || !("weaponMounts" in unit)) {
-      return false;
-    }
-    return unit.weaponMounts < MAX_UNIT_WEAPON_MOUNTS;
-  });
-  const totalUnitMountCost =
-    selectedUnitsWithMountSpace.length * UNIT_WEAPON_MOUNT_COST;
-  const canUpgradeUnitWeapons =
-    !!selectedBase &&
-    selectedUnitsWithMountSpace.length > 0 &&
-    selectedBase.resourceStock >= UNIT_WEAPON_MOUNT_COST;
+  const selectedUnitWeaponType =
+    selectedUnit && "weaponType" in selectedUnit ? selectedUnit.weaponType : "LASER";
+  const selectedUnitAtModule =
+    selectedUnit && selectedModule
+      ? Math.hypot(
+          selectedUnit.x - selectedModule.x,
+          selectedUnit.z - selectedModule.z,
+        ) <= MODULE_INTERACTION_RANGE
+      : false;
   const resourceCount = resourcesRef.current?.size ?? 0;
 
   return (
@@ -1400,11 +1592,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
               {selectedUnitCount > 1
                 ? `${selectedUnitCount} units selected · `
                 : ""}
-              Hull {Math.floor(selectedHp)}/100 · Shields{" "}
+              Hull {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
               {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
               {selectedSpeed.toFixed(1)} · Cargo{" "}
               {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity} ·
-              Type {selectedUnitType} · Mounts{" "}
+              Type {selectedUnitType} · Weapon {selectedUnitWeaponType} · Mounts{" "}
               {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Order{" "}
               {selectedUnitOrder} · Target {selectedUnitTarget} · Dest{" "}
               {selectedUnitDestination} · Source {selectedUnitSource} · Owner{" "}
@@ -1426,8 +1618,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             <>
               <p className="hud-copy">
                 Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
-                {selectedBase.owner} · Weapon mounts{" "}
-                {selectedBaseWeaponMounts}/{MAX_BASE_WEAPON_MOUNTS}.
+                {selectedBase.owner} · Modules {baseModules.length} · Turrets{" "}
+                {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}.
               </p>
               <p className="hud-copy">
                 Hull: {Math.max(0, Math.floor(selectedBase.hp))} · Shields:{" "}
@@ -1476,96 +1668,254 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       </div>
       <div className="tactical-hud tactical-hud-secondary">
         <div>
-          <p className="hud-title">Weapons bay</p>
+          <p className="hud-title">Station modules</p>
           <p className="hud-copy">
-            Allocate resources to upgrade your base defenses and outfit selected
-            ships with additional weapon mounts.
+            Purchase orbital modules around your base to unlock tech upgrades,
+            repairs, and weapon outfitting.
           </p>
           <div className="mount-shop">
             <div className="mount-card">
               <div className="mount-card-header">
                 <div>
-                  <p className="mount-label">Base defense grid</p>
-                  <p className="mount-title">Orbital turret mounts</p>
+                  <p className="mount-label">Research</p>
+                  <p className="mount-title">Tech shop</p>
                 </div>
-                <span className="mount-badge">
-                  {selectedBaseWeaponMounts}/{MAX_BASE_WEAPON_MOUNTS}
-                </span>
+                <span className="mount-badge">{hasTechShop ? "Online" : "Offline"}</span>
               </div>
               <div className="mount-card-body">
                 <p className="mount-meta">
-                  Cost per mount: {BASE_WEAPON_MOUNT_COST} · Range upgrade ready
+                  Cost: {MODULE_TECH_SHOP_COST} · Upgrade ship stats.
                 </p>
-                {selectedBase ? (
-                  <p className="mount-meta">
-                    Base resources: {Math.floor(selectedBase.resourceStock)}
-                  </p>
-                ) : (
-                  <p className="mount-meta">
-                    Select your base to authorize turret upgrades.
-                  </p>
-                )}
                 <button
                   className="hud-button mount-action"
                   type="button"
-                  disabled={!canUpgradeBaseWeapons}
+                  disabled={!canPurchaseTechShop}
                   onClick={() => {
                     if (!room || !selectedBase) {
                       return;
                     }
-                    room.send("base:mountWeapon", {
+                    room.send("base:purchaseModule", {
                       baseId: selectedBase.id,
+                      moduleType: "TECH_SHOP",
                     });
                   }}
                 >
-                  Install base mount
+                  {hasTechShop ? "Tech shop installed" : "Purchase tech shop"}
                 </button>
               </div>
             </div>
             <div className="mount-card">
               <div className="mount-card-header">
                 <div>
-                  <p className="mount-label">Ship outfitting</p>
-                  <p className="mount-title">Weapon mount kit</p>
+                  <p className="mount-label">Maintenance</p>
+                  <p className="mount-title">Repair bay</p>
                 </div>
                 <span className="mount-badge">
-                  {selectedUnitsWithMountSpace.length}/{selectedUnitCount || 0}
+                  {hasRepairBay ? "Operational" : "Offline"}
                 </span>
               </div>
               <div className="mount-card-body">
                 <p className="mount-meta">
-                  Cost per ship: {UNIT_WEAPON_MOUNT_COST} · Max mounts{" "}
-                  {MAX_UNIT_WEAPON_MOUNTS}
+                  Cost: {MODULE_REPAIR_BAY_COST} · Auto-repairs nearby ships.
                 </p>
-                {selectedBase ? (
-                  <p className="mount-meta">
-                    Total cost: {totalUnitMountCost} · Base resources:{" "}
-                    {Math.floor(selectedBase.resourceStock)}
-                  </p>
-                ) : (
-                  <p className="mount-meta">
-                    Select your base to spend resources on upgrades.
-                  </p>
-                )}
                 <button
                   className="hud-button mount-action"
                   type="button"
-                  disabled={!canUpgradeUnitWeapons}
+                  disabled={!canPurchaseRepairBay}
                   onClick={() => {
                     if (!room || !selectedBase) {
                       return;
                     }
-                    room.send("unit:mountWeapon", {
+                    room.send("base:purchaseModule", {
                       baseId: selectedBase.id,
-                      unitIds: selectedUnitsWithMountSpace,
+                      moduleType: "REPAIR_BAY",
                     });
                   }}
                 >
-                  Outfit selected ships
+                  {hasRepairBay ? "Repair bay installed" : "Purchase repair bay"}
+                </button>
+              </div>
+            </div>
+            <div className="mount-card">
+              <div className="mount-card-header">
+                <div>
+                  <p className="mount-label">Loadout</p>
+                  <p className="mount-title">Garage</p>
+                </div>
+                <span className="mount-badge">{hasGarage ? "Ready" : "Offline"}</span>
+              </div>
+              <div className="mount-card-body">
+                <p className="mount-meta">
+                  Cost: {MODULE_GARAGE_COST} · Install new weapon types.
+                </p>
+                <button
+                  className="hud-button mount-action"
+                  type="button"
+                  disabled={!canPurchaseGarage}
+                  onClick={() => {
+                    if (!room || !selectedBase) {
+                      return;
+                    }
+                    room.send("base:purchaseModule", {
+                      baseId: selectedBase.id,
+                      moduleType: "GARAGE",
+                    });
+                  }}
+                >
+                  {hasGarage ? "Garage installed" : "Purchase garage"}
+                </button>
+              </div>
+            </div>
+            <div className="mount-card">
+              <div className="mount-card-header">
+                <div>
+                  <p className="mount-label">Defense ring</p>
+                  <p className="mount-title">Weapon turret</p>
+                </div>
+                <span className="mount-badge">
+                  {weaponTurretCount}/{WEAPON_TURRET_RING_COUNT}
+                </span>
+              </div>
+              <div className="mount-card-body">
+                <p className="mount-meta">
+                  Cost: {MODULE_WEAPON_TURRET_COST} · Choose turret weapon type.
+                </p>
+                <label className="mount-select">
+                  Weapon type
+                  <select
+                    value={moduleWeaponType}
+                    onChange={(event) =>
+                      setModuleWeaponType(
+                        event.target.value as (typeof WEAPON_TYPES)[number],
+                      )
+                    }
+                  >
+                    {WEAPON_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  className="hud-button mount-action"
+                  type="button"
+                  disabled={!canPurchaseWeaponTurret}
+                  onClick={() => {
+                    if (!room || !selectedBase) {
+                      return;
+                    }
+                    room.send("base:purchaseModule", {
+                      baseId: selectedBase.id,
+                      moduleType: "WEAPON_TURRET",
+                      weaponType: moduleWeaponType,
+                    });
+                  }}
+                >
+                  Install turret module
                 </button>
               </div>
             </div>
           </div>
+        </div>
+      </div>
+      <div className="tactical-hud tactical-hud-secondary">
+        <div>
+          <p className="hud-title">
+            {selectedModule ? "Module access" : "No module selected"}
+          </p>
+          {selectedModule ? (
+            <>
+              <p className="hud-copy">
+                {selectedModule.moduleType} · Weapon{" "}
+                {selectedModule.weaponType || "n/a"} ·{" "}
+                {selectedModule.active ? "Active" : "Offline"}
+              </p>
+              {selectedModule.moduleType === "GARAGE" && selectedUnit ? (
+                <>
+                  <p className="hud-copy">
+                    {selectedUnitAtModule
+                      ? "Unit docked. Choose a weapon loadout."
+                      : "Move a ship here to install new weapons."}
+                  </p>
+                  <label className="mount-select">
+                    Weapon type
+                    <select
+                      value={garageWeaponType}
+                      onChange={(event) =>
+                        setGarageWeaponType(
+                          event.target.value as (typeof WEAPON_TYPES)[number],
+                        )
+                      }
+                    >
+                      {WEAPON_TYPES.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!selectedUnitAtModule || !room || !selectedBase}
+                    onClick={() => {
+                      if (!room || !selectedModule || !selectedUnit) {
+                        return;
+                      }
+                      room.send("module:garageWeapon", {
+                        moduleId: selectedModule.id,
+                        unitId: selectedUnit.id,
+                        weaponType: garageWeaponType,
+                      });
+                    }}
+                  >
+                    Install {garageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
+                  </button>
+                </>
+              ) : null}
+              {selectedModule.moduleType === "TECH_SHOP" && selectedUnit ? (
+                <>
+                  <p className="hud-copy">
+                    {selectedUnitAtModule
+                      ? "Upgrade ship stats for resources."
+                      : "Move a ship here to access upgrades."}
+                  </p>
+                  <div className="module-actions">
+                    {Object.entries(TECH_UPGRADE_COSTS).map(([key, cost]) => (
+                      <button
+                        key={key}
+                        className="hud-button mount-action"
+                        type="button"
+                        disabled={!selectedUnitAtModule || !room || !selectedBase}
+                        onClick={() => {
+                          if (!room || !selectedModule || !selectedUnit) {
+                            return;
+                          }
+                          room.send("module:techUpgrade", {
+                            moduleId: selectedModule.id,
+                            unitId: selectedUnit.id,
+                            upgradeType: key,
+                          });
+                        }}
+                      >
+                        Upgrade {key} ({cost})
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : null}
+              {selectedModule.moduleType === "REPAIR_BAY" ? (
+                <p className="hud-copy">
+                  Dock ships here to auto-repair hull and shields.
+                </p>
+              ) : null}
+            </>
+          ) : (
+            <p className="hud-copy">
+              Click a module to manage its services and send ships to interact.
+            </p>
+          )}
         </div>
       </div>
       <div className="tactical-hud tactical-hud-secondary">

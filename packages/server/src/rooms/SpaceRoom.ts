@@ -4,6 +4,7 @@ import { nanoid } from "nanoid";
 import type { Command, ShipStats, UnitType } from "@space-combat/shared";
 import {
   BaseSchema,
+  BaseModuleSchema,
   LobbyPlayerSchema,
   LobbyRoomSchema,
   ResourceNodeSchema,
@@ -32,6 +33,13 @@ const UNIT_STATS: Record<UnitType, ShipStats> = {
   },
 };
 
+const WEAPON_STATS: Record<string, Pick<ShipStats, "weaponRange" | "weaponDamage">> =
+  {
+    LASER: { weaponRange: 12, weaponDamage: 8 },
+    PLASMA: { weaponRange: 9, weaponDamage: 12 },
+    RAIL: { weaponRange: 16, weaponDamage: 6 },
+  };
+
 const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
 const BASE_STARTING_HULL = 400;
@@ -40,9 +48,17 @@ const BASE_STARTING_WEAPON_MOUNTS = 1;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
 const UNIT_WEAPON_MOUNT_COST = 80;
-const BASE_WEAPON_MOUNT_COST = 120;
+const MODULE_TECH_SHOP_COST = 240;
+const MODULE_REPAIR_BAY_COST = 200;
+const MODULE_GARAGE_COST = 260;
+const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
-const MAX_BASE_WEAPON_MOUNTS = 4;
+const MODULE_INTERACTION_RANGE = 6;
+const REPAIR_BAY_RANGE = 5;
+const REPAIR_HULL_RATE = 18;
+const REPAIR_SHIELD_RATE = 26;
+const WEAPON_TURRET_RING_COUNT = 8;
+const WEAPON_TURRET_RING_RADIUS = 18;
 const RESOURCE_HARVEST_RANGE = 4;
 const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
@@ -135,19 +151,43 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     );
 
     this.onMessage(
-      "unit:mountWeapon",
+      "base:purchaseModule",
       (
         client,
-        payload: { baseId?: string; unitIds?: string[]; count?: number },
+        payload: {
+          baseId?: string;
+          moduleType?: string;
+          weaponType?: string;
+        },
       ) => {
-        this.handleUnitWeaponMount(client, payload);
+        this.handleModulePurchase(client, payload);
       },
     );
 
     this.onMessage(
-      "base:mountWeapon",
-      (client, payload: { baseId?: string; count?: number }) => {
-        this.handleBaseWeaponMount(client, payload);
+      "module:visit",
+      (client, payload: { moduleId?: string; unitIds?: string[] }) => {
+        this.handleModuleVisit(client, payload);
+      },
+    );
+
+    this.onMessage(
+      "module:garageWeapon",
+      (
+        client,
+        payload: { moduleId?: string; unitId?: string; weaponType?: string },
+      ) => {
+        this.handleGarageWeaponUpgrade(client, payload);
+      },
+    );
+
+    this.onMessage(
+      "module:techUpgrade",
+      (
+        client,
+        payload: { moduleId?: string; unitId?: string; upgradeType?: string },
+      ) => {
+        this.handleTechUpgrade(client, payload);
       },
     );
 
@@ -276,6 +316,23 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         this.state.bases.delete(id);
       }
     }
+    for (const [id, module] of this.state.modules.entries()) {
+      if (module.owner === client.sessionId) {
+        this.state.modules.delete(id);
+      }
+    }
+  }
+
+  private getUnitStats(unit: UnitSchema): ShipStats {
+    const baseStats = this.stats[unit.unitType] ?? DEFAULT_STATS;
+    const weaponStats = WEAPON_STATS[unit.weaponType] ?? WEAPON_STATS.LASER;
+    return {
+      ...baseStats,
+      maxSpeed: baseStats.maxSpeed + Math.max(0, unit.speedBonus ?? 0),
+      weaponRange: weaponStats.weaponRange,
+      weaponDamage:
+        weaponStats.weaponDamage + Math.max(0, unit.weaponDamageBonus ?? 0),
+    };
   }
 
   private tick(dtMs: number) {
@@ -286,12 +343,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     simulate({
       units: this.state.units,
       bases: this.state.bases,
-      getStats: (unit) => this.stats[unit.unitType] ?? DEFAULT_STATS,
+      modules: this.state.modules,
+      getStats: (unit) => this.getUnitStats(unit),
       dt,
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
     this.processCollectorHarvesting();
+    this.processRepairBays(dt);
   }
 
   private removeDestroyedUnits() {
@@ -328,6 +387,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     for (const baseId of destroyedIds) {
       this.state.bases.delete(baseId);
       this.baseDropoffLocks.delete(baseId);
+      for (const [moduleId, module] of this.state.modules.entries()) {
+        if (module.baseId === baseId) {
+          this.state.modules.delete(moduleId);
+        }
+      }
     }
   }
 
@@ -685,7 +749,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.hp = BASE_STARTING_HULL;
     base.shields = BASE_STARTING_SHIELDS;
     base.maxShields = BASE_STARTING_SHIELDS;
-    base.weaponMounts = BASE_STARTING_WEAPON_MOUNTS;
+    base.weaponMounts = 0;
     base.weaponCooldownLeft = 0;
     base.resourceStock = BASE_STARTING_RESOURCES;
     this.state.bases.set(base.id, base);
@@ -792,12 +856,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.id = nanoid();
     unit.owner = client.sessionId;
     unit.unitType = unitType;
+    unit.weaponType = "LASER";
     unit.cargo = 0;
     unit.cargoCapacity = config.cargoCapacity;
     unit.weaponMounts = config.weaponMounts;
     unit.techMounts = config.techMounts;
+    unit.maxHp = 100;
+    unit.hp = unit.maxHp;
     unit.shields = config.shieldCapacity;
     unit.maxShields = config.shieldCapacity;
+    unit.speedBonus = 0;
+    unit.radarRangeBonus = 0;
+    unit.weaponDamageBonus = 0;
     unit.x = base.x + 6;
     unit.z = base.z + 6;
     this.state.units.set(unit.id, unit);
@@ -810,19 +880,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
   }
 
-  private handleUnitWeaponMount(
+  private handleModulePurchase(
     client: Colyseus.Client,
-    payload: { baseId?: string; unitIds?: string[]; count?: number },
+    payload: { baseId?: string; moduleType?: string; weaponType?: string },
   ) {
-    console.log("[lobby] unit mount request", {
+    console.log("[lobby] module purchase request", {
       sessionId: client.sessionId,
       payload,
     });
     const baseId = payload?.baseId;
-    const unitIds = payload?.unitIds ?? [];
-    const count = Math.max(1, payload?.count ?? 1);
-    if (!baseId || unitIds.length === 0) {
-      console.log("[lobby] unit mount rejected (invalid payload)", {
+    const moduleType = payload?.moduleType ?? "";
+    if (!baseId || !moduleType) {
+      console.log("[lobby] module purchase rejected (invalid payload)", {
         sessionId: client.sessionId,
         payload,
       });
@@ -830,98 +899,299 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     const base = this.state.bases.get(baseId);
     if (!base || base.owner !== client.sessionId) {
-      console.log("[lobby] unit mount rejected (invalid base)", {
+      console.log("[lobby] module purchase rejected (invalid base)", {
         sessionId: client.sessionId,
         baseId,
       });
       return;
     }
-    let remainingResources = base.resourceStock;
-    const units = this.getClientUnits(client.sessionId, unitIds);
-    let mountsApplied = 0;
-    units.forEach((unit) => {
-      if (remainingResources < UNIT_WEAPON_MOUNT_COST) {
+    const moduleCost = this.getModuleCost(moduleType);
+    if (moduleCost <= 0) {
+      console.log("[lobby] module purchase rejected (unknown type)", {
+        sessionId: client.sessionId,
+        moduleType,
+      });
+      return;
+    }
+    if (base.resourceStock < moduleCost) {
+      console.log("[lobby] module purchase rejected (insufficient resources)", {
+        sessionId: client.sessionId,
+        baseId,
+        resources: base.resourceStock,
+        cost: moduleCost,
+      });
+      return;
+    }
+    if (moduleType !== "WEAPON_TURRET") {
+      const existing = this.findModuleByType(baseId, moduleType);
+      if (existing) {
+        console.log("[lobby] module purchase rejected (already exists)", {
+          sessionId: client.sessionId,
+          baseId,
+          moduleType,
+        });
         return;
       }
-      const targetMounts = Math.min(
-        unit.weaponMounts + count,
-        MAX_UNIT_WEAPON_MOUNTS,
-      );
-      const needed = targetMounts - unit.weaponMounts;
-      if (needed <= 0) {
-        return;
-      }
-      const affordable = Math.min(
-        needed,
-        Math.floor(remainingResources / UNIT_WEAPON_MOUNT_COST),
-      );
-      if (affordable <= 0) {
-        return;
-      }
-      unit.weaponMounts += affordable;
-      remainingResources -= affordable * UNIT_WEAPON_MOUNT_COST;
-      mountsApplied += affordable;
-    });
-    base.resourceStock = remainingResources;
-    console.log("[lobby] unit mount complete", {
+    } else if (!payload?.weaponType || !WEAPON_STATS[payload.weaponType]) {
+      console.log("[lobby] module purchase rejected (missing weapon type)", {
+        sessionId: client.sessionId,
+        baseId,
+      });
+      return;
+    }
+    const position = this.getModuleSpawnPosition(base, moduleType);
+    if (!position) {
+      console.log("[lobby] module purchase rejected (no slot)", {
+        sessionId: client.sessionId,
+        baseId,
+        moduleType,
+      });
+      return;
+    }
+    const module = new BaseModuleSchema();
+    module.id = nanoid();
+    module.owner = client.sessionId;
+    module.baseId = baseId;
+    module.moduleType = moduleType;
+    module.weaponType =
+      moduleType === "WEAPON_TURRET" ? payload?.weaponType ?? "LASER" : "";
+    module.x = position.x;
+    module.z = position.z;
+    module.weaponCooldownLeft = 0;
+    module.active = true;
+    base.resourceStock -= moduleCost;
+    this.state.modules.set(module.id, module);
+    console.log("[lobby] module purchase success", {
       sessionId: client.sessionId,
       baseId,
-      mountsApplied,
+      moduleId: module.id,
+      moduleType,
       remaining: base.resourceStock,
     });
   }
 
-  private handleBaseWeaponMount(
+  private handleModuleVisit(
     client: Colyseus.Client,
-    payload: { baseId?: string; count?: number },
+    payload: { moduleId?: string; unitIds?: string[] },
   ) {
-    console.log("[lobby] base mount request", {
-      sessionId: client.sessionId,
-      payload,
-    });
-    const baseId = payload?.baseId;
-    const count = Math.max(1, payload?.count ?? 1);
-    if (!baseId) {
-      console.log("[lobby] base mount rejected (invalid payload)", {
-        sessionId: client.sessionId,
-        payload,
-      });
+    const moduleId = payload?.moduleId;
+    const unitIds = payload?.unitIds ?? [];
+    if (!moduleId || unitIds.length === 0) {
       return;
     }
-    const base = this.state.bases.get(baseId);
+    const module = this.state.modules.get(moduleId);
+    if (!module || module.owner !== client.sessionId) {
+      return;
+    }
+    const units = this.getClientUnits(client.sessionId, unitIds);
+    units.forEach((unit) => {
+      unit.orderType = "MOVE";
+      unit.orderX = module.x;
+      unit.orderZ = module.z;
+      unit.orderTargetId = module.id;
+    });
+  }
+
+  private handleGarageWeaponUpgrade(
+    client: Colyseus.Client,
+    payload: { moduleId?: string; unitId?: string; weaponType?: string },
+  ) {
+    const moduleId = payload?.moduleId;
+    const unitId = payload?.unitId;
+    const weaponType = payload?.weaponType ?? "";
+    if (!moduleId || !unitId || !weaponType) {
+      return;
+    }
+    if (!WEAPON_STATS[weaponType]) {
+      return;
+    }
+    const module = this.state.modules.get(moduleId);
+    const unit = this.state.units.get(unitId);
+    if (
+      !module ||
+      module.owner !== client.sessionId ||
+      module.moduleType !== "GARAGE" ||
+      !unit ||
+      unit.owner !== client.sessionId
+    ) {
+      return;
+    }
+    const base = this.state.bases.get(module.baseId);
     if (!base || base.owner !== client.sessionId) {
-      console.log("[lobby] base mount rejected (invalid base)", {
-        sessionId: client.sessionId,
-        baseId,
-      });
       return;
     }
-    const availableSlots = Math.max(
-      0,
-      MAX_BASE_WEAPON_MOUNTS - base.weaponMounts,
-    );
-    const desired = Math.min(count, availableSlots);
-    const affordable = Math.min(
-      desired,
-      Math.floor(base.resourceStock / BASE_WEAPON_MOUNT_COST),
-    );
-    if (affordable <= 0) {
-      console.log("[lobby] base mount rejected (insufficient resources)", {
-        sessionId: client.sessionId,
-        baseId,
-        resources: base.resourceStock,
-        cost: BASE_WEAPON_MOUNT_COST,
-      });
+    const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
+    if (dist > MODULE_INTERACTION_RANGE) {
       return;
     }
-    base.weaponMounts += affordable;
-    base.resourceStock -= affordable * BASE_WEAPON_MOUNT_COST;
-    console.log("[lobby] base mount complete", {
-      sessionId: client.sessionId,
-      baseId,
-      mountsApplied: affordable,
-      remaining: base.resourceStock,
-    });
+    if (base.resourceStock < UNIT_WEAPON_MOUNT_COST) {
+      return;
+    }
+    unit.weaponType = weaponType;
+    unit.weaponMounts = Math.min(MAX_UNIT_WEAPON_MOUNTS, unit.weaponMounts + 1);
+    base.resourceStock -= UNIT_WEAPON_MOUNT_COST;
+  }
+
+  private handleTechUpgrade(
+    client: Colyseus.Client,
+    payload: { moduleId?: string; unitId?: string; upgradeType?: string },
+  ) {
+    const moduleId = payload?.moduleId;
+    const unitId = payload?.unitId;
+    const upgradeType = payload?.upgradeType ?? "";
+    if (!moduleId || !unitId || !upgradeType) {
+      return;
+    }
+    const module = this.state.modules.get(moduleId);
+    const unit = this.state.units.get(unitId);
+    if (
+      !module ||
+      module.owner !== client.sessionId ||
+      module.moduleType !== "TECH_SHOP" ||
+      !unit ||
+      unit.owner !== client.sessionId
+    ) {
+      return;
+    }
+    const base = this.state.bases.get(module.baseId);
+    if (!base || base.owner !== client.sessionId) {
+      return;
+    }
+    const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
+    if (dist > MODULE_INTERACTION_RANGE) {
+      return;
+    }
+    const cost = this.getTechUpgradeCost(upgradeType);
+    if (cost <= 0 || base.resourceStock < cost) {
+      return;
+    }
+    base.resourceStock -= cost;
+    switch (upgradeType) {
+      case "SHIELDS":
+        unit.maxShields += 15;
+        unit.shields = unit.maxShields;
+        break;
+      case "HULL":
+        unit.maxHp += 20;
+        unit.hp = Math.min(unit.maxHp, unit.hp + 20);
+        break;
+      case "SPEED":
+        unit.speedBonus += 1.5;
+        break;
+      case "RADAR":
+        unit.radarRangeBonus += 6;
+        break;
+      case "WEAPON":
+        unit.weaponDamageBonus += 2;
+        break;
+      default:
+        break;
+    }
+  }
+
+  private processRepairBays(dt: number) {
+    for (const module of this.state.modules.values()) {
+      if (module.moduleType !== "REPAIR_BAY" || !module.active) {
+        continue;
+      }
+      for (const unit of this.state.units.values()) {
+        if (unit.owner !== module.owner) {
+          continue;
+        }
+        const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
+        if (dist > REPAIR_BAY_RANGE) {
+          continue;
+        }
+        if (unit.hp < unit.maxHp) {
+          unit.hp = Math.min(unit.maxHp, unit.hp + REPAIR_HULL_RATE * dt);
+        }
+        if (unit.shields < unit.maxShields) {
+          unit.shields = Math.min(
+            unit.maxShields,
+            unit.shields + REPAIR_SHIELD_RATE * dt,
+          );
+        }
+      }
+    }
+  }
+
+  private getModuleCost(moduleType: string) {
+    switch (moduleType) {
+      case "TECH_SHOP":
+        return MODULE_TECH_SHOP_COST;
+      case "REPAIR_BAY":
+        return MODULE_REPAIR_BAY_COST;
+      case "GARAGE":
+        return MODULE_GARAGE_COST;
+      case "WEAPON_TURRET":
+        return MODULE_WEAPON_TURRET_COST;
+      default:
+        return 0;
+    }
+  }
+
+  private getTechUpgradeCost(upgradeType: string) {
+    switch (upgradeType) {
+      case "SHIELDS":
+        return 80;
+      case "HULL":
+        return 90;
+      case "SPEED":
+        return 110;
+      case "RADAR":
+        return 75;
+      case "WEAPON":
+        return 120;
+      default:
+        return 0;
+    }
+  }
+
+  private findModuleByType(baseId: string, moduleType: string) {
+    for (const module of this.state.modules.values()) {
+      if (module.baseId === baseId && module.moduleType === moduleType) {
+        return module;
+      }
+    }
+    return null;
+  }
+
+  private getModuleSpawnPosition(base: BaseSchema, moduleType: string) {
+    if (moduleType === "WEAPON_TURRET") {
+      const usedSlots = new Set<number>();
+      for (const module of this.state.modules.values()) {
+        if (module.baseId === base.id && module.moduleType === "WEAPON_TURRET") {
+          const angle = Math.atan2(module.z - base.z, module.x - base.x);
+          const slot = Math.round(
+            ((angle + Math.PI) / (Math.PI * 2)) * WEAPON_TURRET_RING_COUNT,
+          );
+          usedSlots.add(
+            (slot + WEAPON_TURRET_RING_COUNT) % WEAPON_TURRET_RING_COUNT,
+          );
+        }
+      }
+      for (let i = 0; i < WEAPON_TURRET_RING_COUNT; i += 1) {
+        if (usedSlots.has(i)) {
+          continue;
+        }
+        const angle = (i / WEAPON_TURRET_RING_COUNT) * Math.PI * 2;
+        return {
+          x: base.x + Math.cos(angle) * WEAPON_TURRET_RING_RADIUS,
+          z: base.z + Math.sin(angle) * WEAPON_TURRET_RING_RADIUS,
+        };
+      }
+      return null;
+    }
+    switch (moduleType) {
+      case "TECH_SHOP":
+        return { x: base.x + 14, z: base.z + 12 };
+      case "REPAIR_BAY":
+        return { x: base.x - 16, z: base.z + 10 };
+      case "GARAGE":
+        return { x: base.x, z: base.z - 18 };
+      default:
+        return null;
+    }
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {

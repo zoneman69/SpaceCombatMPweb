@@ -7,6 +7,8 @@ export type Command =
   | { t: "ATTACK_MOVE"; unitIds: string[]; x: number; z: number; queue?: boolean };
 
 export type UnitType = "RESOURCE_COLLECTOR" | "FIGHTER";
+export type WeaponType = "LASER" | "PLASMA" | "RAIL";
+export type ModuleType = "TECH_SHOP" | "REPAIR_BAY" | "GARAGE" | "WEAPON_TURRET";
 
 export type UnitState = {
   id: string;

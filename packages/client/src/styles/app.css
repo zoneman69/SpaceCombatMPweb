@@ -452,6 +452,27 @@ body.tactical-view-scroll-locked {
   color: rgba(191, 219, 254, 0.75);
 }
 
+.mount-select {
+  display: grid;
+  gap: 6px;
+  font-size: 0.75rem;
+  color: rgba(191, 219, 254, 0.8);
+  margin-bottom: 6px;
+}
+
+.mount-select select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  background: rgba(15, 23, 42, 0.7);
+  color: #e2e8f0;
+}
+
+.module-actions {
+  display: grid;
+  gap: 8px;
+}
+
 .mount-action {
   margin-top: 6px;
   width: 100%;
