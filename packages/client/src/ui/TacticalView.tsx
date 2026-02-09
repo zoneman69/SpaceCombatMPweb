@@ -1135,11 +1135,28 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       const base = basesRef.current?.get(hitId);
       if (base && base.owner === localSessionId) {
         setSelectedBaseId(hitId);
+        setSelection(null);
+        setSelectedUnitIds([]);
+      } else if (room && selectedUnitIds.length > 0 && base) {
+        const weaponUnitIds = selectedUnitIds.filter((unitId) => {
+          const unit =
+            unitsRef.current?.get(unitId) ??
+            fallbackUnitsRef.current.get(unitId);
+          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+        });
+        if (weaponUnitIds.length > 0) {
+          setSelectedBaseId(null);
+          room.send("command", {
+            t: "ATTACK",
+            unitIds: weaponUnitIds,
+            targetId: hitId,
+          });
+        }
       } else {
         setSelectedBaseId(null);
+        setSelection(null);
+        setSelectedUnitIds([]);
       }
-      setSelection(null);
-      setSelectedUnitIds([]);
       return;
     }
 
@@ -1386,6 +1403,11 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
               <p className="hud-copy">
                 Resources: {Math.floor(selectedBase.resourceStock)} · Owner{" "}
                 {selectedBase.owner}.
+              </p>
+              <p className="hud-copy">
+                Hull: {Math.max(0, Math.floor(selectedBase.hp))} · Shields:{" "}
+                {Math.max(0, Math.floor(selectedBase.shields))}/
+                {Math.max(0, Math.floor(selectedBase.maxShields))}
               </p>
               <button
                 className="hud-button"

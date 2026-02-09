@@ -1,5 +1,5 @@
 import type { MapSchema } from "@colyseus/schema";
-import type { ShipStats, UnitSchema } from "@space-combat/shared";
+import type { BaseSchema, ShipStats, UnitSchema } from "@space-combat/shared";
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -17,17 +17,28 @@ type UnitCollection = Pick<
   "get" | "values"
 >;
 
+type BaseCollection = Pick<
+  Map<string, BaseSchema> | MapSchema<BaseSchema>,
+  "get" | "values"
+>;
+
 export type SimContext = {
   units: UnitCollection;
+  bases: BaseCollection;
   getStats: (unit: UnitSchema) => ShipStats;
   dt: number;
 };
 
-export const simulate = ({ units, getStats, dt }: SimContext) => {
+type AttackTarget = Pick<
+  UnitSchema | BaseSchema,
+  "id" | "x" | "z" | "hp" | "shields" | "maxShields"
+>;
+
+export const simulate = ({ units, bases, getStats, dt }: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
     const stats = getStats(unit);
-    updateUnit(unit, units, stats, dt);
+    updateUnit(unit, units, bases, stats, dt);
   }
   resolveUnitCollisions(unitList);
 };
@@ -35,6 +46,7 @@ export const simulate = ({ units, getStats, dt }: SimContext) => {
 const updateUnit = (
   unit: UnitSchema,
   units: UnitCollection,
+  bases: BaseCollection,
   stats: ShipStats,
   dt: number,
 ) => {
@@ -56,7 +68,8 @@ const updateUnit = (
   let shouldMove = false;
 
   if (hasTarget) {
-    const target = units.get(unit.orderTargetId);
+    const target =
+      units.get(unit.orderTargetId) ?? bases.get(unit.orderTargetId);
     if (target) {
       desiredX = target.x;
       desiredZ = target.z;
@@ -143,7 +156,7 @@ const applyDamping = (unit: UnitSchema, stats: ShipStats, dt: number) => {
 
 const maybeFire = (
   unit: UnitSchema,
-  target: UnitSchema,
+  target: AttackTarget,
   stats: ShipStats,
   distToTarget: number,
 ) => {
