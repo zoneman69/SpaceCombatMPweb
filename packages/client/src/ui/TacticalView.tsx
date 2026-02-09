@@ -33,6 +33,14 @@ type DebugUnit = {
   z: number;
 };
 
+type FiringEffect = {
+  line: THREE.Line;
+  ttl: number;
+  maxTtl: number;
+  fromId: string;
+  toId: string;
+};
+
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
     return unit.unitType === "FIGHTER"
@@ -89,6 +97,8 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
   const cameraModeRef = useRef<CameraMode>("squad");
+  const firingEffectsRef = useRef<FiringEffect[]>([]);
+  const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraYawRef = useRef(0);
@@ -546,8 +556,10 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
         : fallbackUnits.size
           ? fallbackUnits
           : null;
+      const activeUnitIds = new Set<string>();
       if (activeUnits) {
         activeUnits.forEach((unit) => {
+          activeUnitIds.add(unit.id);
           const render = meshesRef.current.get(unit.id);
           if (!render) {
             return;
@@ -562,6 +574,80 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
           }
           mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
         });
+      }
+      const weaponCooldowns = weaponCooldownsRef.current;
+      if (activeUnits) {
+        activeUnits.forEach((unit) => {
+          const cooldown =
+            "weaponCooldownLeft" in unit ? unit.weaponCooldownLeft : 0;
+          const previousCooldown = weaponCooldowns.get(unit.id) ?? 0;
+          if (cooldown > 0 && previousCooldown <= 0 && "tgt" in unit) {
+            const targetId = unit.tgt;
+            if (targetId) {
+              const target =
+                unitsRef.current?.get(targetId) ??
+                fallbackUnitsRef.current.get(targetId);
+              if (target) {
+                const geometry = new THREE.BufferGeometry();
+                geometry.setAttribute(
+                  "position",
+                  new THREE.BufferAttribute(new Float32Array(6), 3),
+                );
+                const material = new THREE.LineBasicMaterial({
+                  color: UNIT_COLORS.selected,
+                  transparent: true,
+                  opacity: 0.9,
+                });
+                const line = new THREE.Line(geometry, material);
+                scene.add(line);
+                const ttl = 0.25;
+                firingEffectsRef.current.push({
+                  line,
+                  ttl,
+                  maxTtl: ttl,
+                  fromId: unit.id,
+                  toId: targetId,
+                });
+              }
+            }
+          }
+          weaponCooldowns.set(unit.id, cooldown);
+        });
+      }
+      if (weaponCooldowns.size > activeUnitIds.size) {
+        for (const unitId of weaponCooldowns.keys()) {
+          if (!activeUnitIds.has(unitId)) {
+            weaponCooldowns.delete(unitId);
+          }
+        }
+      }
+      if (firingEffectsRef.current.length > 0) {
+        const effects = firingEffectsRef.current;
+        for (let i = effects.length - 1; i >= 0; i -= 1) {
+          const effect = effects[i];
+          effect.ttl -= delta;
+          const from =
+            unitsRef.current?.get(effect.fromId) ??
+            fallbackUnitsRef.current.get(effect.fromId);
+          const to =
+            unitsRef.current?.get(effect.toId) ??
+            fallbackUnitsRef.current.get(effect.toId);
+          if (!from || !to || effect.ttl <= 0) {
+            scene.remove(effect.line);
+            effect.line.geometry.dispose();
+            (effect.line.material as THREE.Material).dispose();
+            effects.splice(i, 1);
+            continue;
+          }
+          const positions = effect.line.geometry.getAttribute(
+            "position",
+          ) as THREE.BufferAttribute;
+          positions.setXYZ(0, from.x, 2, from.z);
+          positions.setXYZ(1, to.x, 2, to.z);
+          positions.needsUpdate = true;
+          const material = effect.line.material as THREE.LineBasicMaterial;
+          material.opacity = Math.max(0, effect.ttl / effect.maxTtl);
+        }
       }
       basesRef.current?.forEach((base) => {
         const render = baseMeshesRef.current.get(base.id);
@@ -731,6 +817,12 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
       if (requestRef.current) {
         cancelAnimationFrame(requestRef.current);
       }
+      firingEffectsRef.current.forEach((effect) => {
+        scene.remove(effect.line);
+        effect.line.geometry.dispose();
+        (effect.line.material as THREE.Material).dispose();
+      });
+      firingEffectsRef.current = [];
       renderer.dispose();
       fighterGeometry.dispose();
       collectorGeometry.dispose();
@@ -1078,10 +1170,6 @@ export default function TacticalView({ room, localSessionId }: TacticalViewProps
             targetId: hitId,
           });
         }
-      } else {
-        setSelection(null);
-        setSelectedUnitIds([]);
-        setSelectedBaseId(null);
       }
       return;
     }
