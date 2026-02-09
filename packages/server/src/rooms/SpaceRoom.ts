@@ -34,6 +34,8 @@ const UNIT_STATS: Record<UnitType, ShipStats> = {
 
 const TICK_RATE = 20;
 const BASE_STARTING_RESOURCES = 100;
+const BASE_STARTING_HULL = 400;
+const BASE_STARTING_SHIELDS = 200;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
 const RESOURCE_HARVEST_RANGE = 4;
@@ -83,6 +85,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly playerRoomIds = new Map<string, string>();
   private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
+  private readonly eliminatedOwners = new Set<string>();
 
   onCreate() {
     this.setState(new SpaceState());
@@ -260,10 +263,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.advanceCollectorTimers(dt);
     simulate({
       units: this.state.units,
+      bases: this.state.bases,
       getStats: (unit) => this.stats[unit.unitType] ?? DEFAULT_STATS,
       dt,
     });
     this.removeDestroyedUnits();
+    this.removeDestroyedBases();
     this.processCollectorHarvesting();
   }
 
@@ -284,6 +289,23 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       if (destroyedIds.has(lockedBy)) {
         this.baseDropoffLocks.delete(baseId);
       }
+    }
+  }
+
+  private removeDestroyedBases() {
+    const destroyedIds = new Set<string>();
+    for (const [id, base] of this.state.bases.entries()) {
+      if (base.hp <= 0) {
+        destroyedIds.add(id);
+        this.eliminatedOwners.add(base.owner);
+      }
+    }
+    if (destroyedIds.size === 0) {
+      return;
+    }
+    for (const baseId of destroyedIds) {
+      this.state.bases.delete(baseId);
+      this.baseDropoffLocks.delete(baseId);
     }
   }
 
@@ -613,6 +635,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private ensureBaseForClient(sessionId: string) {
+    if (this.eliminatedOwners.has(sessionId)) {
+      return;
+    }
     let hasBase = false;
     for (const base of this.state.bases.values()) {
       if (base.owner === sessionId) {
@@ -635,6 +660,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const angle = spawnIndex * goldenAngle;
     base.x = Math.cos(angle) * BASE_SPAWN_RADIUS;
     base.z = Math.sin(angle) * BASE_SPAWN_RADIUS;
+    base.hp = BASE_STARTING_HULL;
+    base.shields = BASE_STARTING_SHIELDS;
+    base.maxShields = BASE_STARTING_SHIELDS;
     base.resourceStock = BASE_STARTING_RESOURCES;
     this.state.bases.set(base.id, base);
     console.log("[lobby] base spawned", {
@@ -655,6 +683,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       owners.add(base.owner);
     }
     this.clients.forEach((client) => {
+      if (this.eliminatedOwners.has(client.sessionId)) {
+        return;
+      }
       if (!owners.has(client.sessionId)) {
         this.ensureBaseForClient(client.sessionId);
       }
