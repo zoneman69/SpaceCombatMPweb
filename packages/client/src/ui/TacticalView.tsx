@@ -1636,12 +1636,42 @@ export default function TacticalView({
         )}
       </div>
       {createPortal(
-        <div className="play-hud" role="status" aria-live="polite">
-          <div className="play-hud-card">
+        <div
+          className="play-hud"
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            top: 16,
+            left: 16,
+            zIndex: 9999,
+            display: "grid",
+            gap: 10,
+            width: "min(460px, calc(100% - 32px))",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            className="play-hud-card"
+            style={{
+              border: "1px solid rgba(96, 165, 250, 0.65)",
+              background: "rgba(7, 13, 28, 0.92)",
+              borderRadius: 12,
+              padding: "10px 12px",
+            }}
+          >
             <p className="play-hud-label">Resources</p>
             <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
           </div>
-          <div className="play-hud-card play-hud-card--wide">
+          <div
+            className="play-hud-card play-hud-card--wide"
+            style={{
+              border: "1px solid rgba(96, 165, 250, 0.65)",
+              background: "rgba(7, 13, 28, 0.92)",
+              borderRadius: 12,
+              padding: "9px 12px 10px",
+            }}
+          >
             <p className="play-hud-label">Selection</p>
             {selectedUnit ? (
               <p className="play-hud-copy">
