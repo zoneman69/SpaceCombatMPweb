@@ -336,6 +336,50 @@ body.tactical-view-scroll-locked {
   pointer-events: none;
 }
 
+.play-hud {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 30;
+  display: grid;
+  gap: 10px;
+  width: min(460px, calc(100% - 32px));
+  pointer-events: none;
+}
+
+.play-hud-card {
+  border-radius: 12px;
+  border: 1px solid rgba(96, 165, 250, 0.45);
+  background: rgba(7, 13, 28, 0.82);
+  box-shadow: 0 10px 24px rgba(2, 6, 18, 0.45);
+  padding: 10px 12px;
+}
+
+.play-hud-card--wide {
+  padding-top: 9px;
+}
+
+.play-hud-label {
+  margin: 0;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #89a3ce;
+}
+
+.play-hud-value {
+  margin: 4px 0 0;
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #f8fafc;
+}
+
+.play-hud-copy {
+  margin: 4px 0 0;
+  color: #d5e2f7;
+  font-size: 0.88rem;
+}
+
 .tactical-sidebar {
   position: absolute;
   top: 0;

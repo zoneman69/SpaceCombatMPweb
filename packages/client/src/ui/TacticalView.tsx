@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
+import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import type {
@@ -1580,6 +1581,9 @@ export default function TacticalView({
         ) <= MODULE_INTERACTION_RANGE
       : false;
   const resourceCount = resourcesRef.current?.size ?? 0;
+  const localResourceTotal = Array.from(basesRef.current?.values() ?? [])
+    .filter((base) => base.owner === localSessionId)
+    .reduce((total, base) => total + base.resourceStock, 0);
 
   return (
     <div className="tactical-view">
@@ -1612,6 +1616,28 @@ export default function TacticalView({
           />
         )}
       </div>
+      {createPortal(
+        <div className="play-hud" role="status" aria-live="polite">
+          <div className="play-hud-card">
+            <p className="play-hud-label">Resources</p>
+            <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
+          </div>
+          <div className="play-hud-card play-hud-card--wide">
+            <p className="play-hud-label">Selection</p>
+            {selectedUnit ? (
+              <p className="play-hud-copy">
+                {selectedUnitCount > 1 ? `${selectedUnitCount} selected · ` : ""}
+                HP {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
+                {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
+                {selectedSpeed.toFixed(1)} · Weapon {selectedUnitWeaponType}
+              </p>
+            ) : (
+              <p className="play-hud-copy">No unit selected</p>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
       <aside
         className={`tactical-sidebar ${isSidebarOpen ? "open" : "closed"}`}
         aria-hidden={!isSidebarOpen}
