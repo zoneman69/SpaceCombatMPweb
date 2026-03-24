@@ -19,6 +19,7 @@
     "dev:server": "pnpm --filter @space-combat/server dev",
     "dev:client": "pnpm --filter @space-combat/client dev",
     "build": "pnpm -r build",
-    "lint": "pnpm -r lint"
+    "lint": "pnpm -r lint",
+    "deploy:client": "bash scripts/deploy-client-dist.sh --build"
   }
 }
