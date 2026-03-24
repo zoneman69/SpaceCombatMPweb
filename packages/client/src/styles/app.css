@@ -337,10 +337,10 @@ body.tactical-view-scroll-locked {
 }
 
 .play-hud {
-  position: absolute;
+  position: fixed;
   top: 16px;
   left: 16px;
-  z-index: 3;
+  z-index: 30;
   display: grid;
   gap: 10px;
   width: min(460px, calc(100% - 32px));
