@@ -2113,6 +2113,9 @@ export default function TacticalView({
                   ).toLocaleTimeString()})`
                 : "n/a"}
             </p>
+            <p className="hud-copy">
+              Credits total: {Math.floor(localResourceTotal)}
+            </p>
           </section>
         </div>
       </aside>
@@ -2122,7 +2125,8 @@ export default function TacticalView({
         onClick={() => setIsSidebarOpen((prev) => !prev)}
         aria-expanded={isSidebarOpen}
       >
-        {isSidebarOpen ? "Hide panel" : "Show panel"}
+        {isSidebarOpen ? "Hide panel" : "Show panel"} · Credits{" "}
+        {Math.floor(localResourceTotal)}
       </button>
     </div>
   );
