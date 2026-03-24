@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Room } from "colyseus.js";
+import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
 import type {
@@ -1580,6 +1581,9 @@ export default function TacticalView({
         ) <= MODULE_INTERACTION_RANGE
       : false;
   const resourceCount = resourcesRef.current?.size ?? 0;
+  const localResourceTotal = Array.from(basesRef.current?.values() ?? [])
+    .filter((base) => base.owner === localSessionId)
+    .reduce((total, base) => total + base.resourceStock, 0);
 
   return (
     <div className="tactical-view">
@@ -1612,6 +1616,58 @@ export default function TacticalView({
           />
         )}
       </div>
+      {createPortal(
+        <div
+          className="play-hud"
+          role="status"
+          aria-live="polite"
+          style={{
+            position: "fixed",
+            top: 16,
+            left: 16,
+            zIndex: 9999,
+            display: "grid",
+            gap: 10,
+            width: "min(460px, calc(100% - 32px))",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            className="play-hud-card"
+            style={{
+              border: "1px solid rgba(96, 165, 250, 0.65)",
+              background: "rgba(7, 13, 28, 0.92)",
+              borderRadius: 12,
+              padding: "10px 12px",
+            }}
+          >
+            <p className="play-hud-label">Resources</p>
+            <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
+          </div>
+          <div
+            className="play-hud-card play-hud-card--wide"
+            style={{
+              border: "1px solid rgba(96, 165, 250, 0.65)",
+              background: "rgba(7, 13, 28, 0.92)",
+              borderRadius: 12,
+              padding: "9px 12px 10px",
+            }}
+          >
+            <p className="play-hud-label">Selection</p>
+            {selectedUnit ? (
+              <p className="play-hud-copy">
+                {selectedUnitCount > 1 ? `${selectedUnitCount} selected · ` : ""}
+                HP {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
+                {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
+                {selectedSpeed.toFixed(1)} · Weapon {selectedUnitWeaponType}
+              </p>
+            ) : (
+              <p className="play-hud-copy">No unit selected</p>
+            )}
+          </div>
+        </div>,
+        document.body,
+      )}
       <aside
         className={`tactical-sidebar ${isSidebarOpen ? "open" : "closed"}`}
         aria-hidden={!isSidebarOpen}
@@ -1631,6 +1687,19 @@ export default function TacticalView({
                 Return to lobby
               </button>
             ) : null}
+          </section>
+
+          <section className="tactical-panel tactical-panel--primary">
+            <div className="tactical-panel-header">
+              <p className="hud-title">Credits</p>
+              <div className="hud-status">
+                <span>Total available</span>
+                <strong>{Math.floor(localResourceTotal)}</strong>
+              </div>
+            </div>
+            <p className="hud-copy">
+              Total credits across all of your owned bases.
+            </p>
           </section>
 
           <section className="tactical-panel">
