@@ -1634,6 +1634,25 @@ export default function TacticalView({
           />
         )}
       </div>
+      <div className="play-hud" role="status" aria-live="polite">
+        <div className="play-hud-card">
+          <p className="play-hud-label">Resources</p>
+          <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
+        </div>
+        <div className="play-hud-card play-hud-card--wide">
+          <p className="play-hud-label">Selection</p>
+          {selectedUnit ? (
+            <p className="play-hud-copy">
+              {selectedUnitCount > 1 ? `${selectedUnitCount} selected · ` : ""}
+              HP {Math.floor(selectedHp)}/{selectedUnitMaxHp} · Shields{" "}
+              {Math.floor(selectedShields)}/{selectedUnitMaxShields} · Speed{" "}
+              {selectedSpeed.toFixed(1)} · Weapon {selectedUnitWeaponType}
+            </p>
+          ) : (
+            <p className="play-hud-copy">No unit selected</p>
+          )}
+        </div>
+      </div>
       <aside
         className={`tactical-sidebar ${isSidebarOpen ? "open" : "closed"}`}
         aria-hidden={!isSidebarOpen}
