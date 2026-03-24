@@ -112,7 +112,7 @@ const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
 const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
-const FIGHTER_MODEL_URL = "/assets/models/fighter.glb";
+const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
 
 const normalizeGeometry = (
@@ -140,6 +140,13 @@ const normalizeGeometry = (
     geometry.translate(-center.x, -center.y, -center.z);
   }
   return geometry;
+};
+
+const resolveRuntimeAssetUrl = (assetPath: string) => {
+  const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  return `${normalizedBase}${assetPath}`;
 };
 
 export default function TacticalView({
@@ -404,6 +411,7 @@ export default function TacticalView({
     const fighterGeometry = new THREE.ConeGeometry(2.2, 6, 12);
     fighterGeometry.rotateZ(-Math.PI / 2);
     fighterGeometry.translate(0.8, 0, 0);
+    const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
     let isDisposed = false;
 
@@ -488,7 +496,7 @@ export default function TacticalView({
     const loadFighterModel = async () => {
       const loader = new GLTFLoader();
       try {
-        const gltf = await loader.loadAsync(FIGHTER_MODEL_URL);
+        const gltf = await loader.loadAsync(fighterModelUrl);
         if (isDisposed) {
           return;
         }
@@ -500,7 +508,7 @@ export default function TacticalView({
         });
         if (!fighterMesh) {
           console.warn(
-            `[tactical] fighter model at ${FIGHTER_MODEL_URL} had no mesh; using primitive fallback`,
+            `[tactical] fighter model at ${fighterModelUrl} had no mesh; using primitive fallback`,
           );
           return;
         }
@@ -508,11 +516,11 @@ export default function TacticalView({
         loadedFighterGeometry = normalizeGeometry(fighterMesh.geometry);
         applyLoadedFighterGeometry();
         console.log(
-          `[tactical] loaded fighter GLB model from ${FIGHTER_MODEL_URL}`,
+          `[tactical] loaded fighter GLB model from ${fighterModelUrl}`,
         );
       } catch (error) {
         console.warn(
-          `[tactical] failed to load fighter GLB model from ${FIGHTER_MODEL_URL}; using primitive fallback`,
+          `[tactical] failed to load fighter GLB model from ${fighterModelUrl}; using primitive fallback`,
           error,
         );
       }
