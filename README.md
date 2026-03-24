@@ -15,3 +15,10 @@ pnpm install
 pnpm dev:server
 pnpm dev:client
 ```
+
+## Client runtime assets
+
+- The tactical client will try to load a fighter model from
+  `packages/client/public/assets/models/fighter.glb`.
+- If the file is missing or fails to load, the client falls back to the
+  procedural fighter mesh.

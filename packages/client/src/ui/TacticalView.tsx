@@ -3,6 +3,7 @@ import type { Room } from "colyseus.js";
 import { createPortal } from "react-dom";
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import type {
   BaseSchema,
   BaseModuleSchema,
@@ -111,6 +112,42 @@ const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
 const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
+const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
+const FIGHTER_MODEL_TARGET_SIZE = 6;
+
+const normalizeGeometry = (
+  sourceGeometry: THREE.BufferGeometry,
+  targetSize = FIGHTER_MODEL_TARGET_SIZE,
+) => {
+  const geometry = sourceGeometry.clone();
+  geometry.computeBoundingBox();
+  const box = geometry.boundingBox;
+  if (!box) {
+    return geometry;
+  }
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDimension = Math.max(size.x, size.y, size.z);
+  if (maxDimension > 0) {
+    const scale = targetSize / maxDimension;
+    geometry.scale(scale, scale, scale);
+  }
+  geometry.computeBoundingBox();
+  const centeredBox = geometry.boundingBox;
+  if (centeredBox) {
+    const center = new THREE.Vector3();
+    centeredBox.getCenter(center);
+    geometry.translate(-center.x, -center.y, -center.z);
+  }
+  return geometry;
+};
+
+const resolveRuntimeAssetUrl = (assetPath: string) => {
+  const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
+    ? import.meta.env.BASE_URL
+    : `${import.meta.env.BASE_URL}/`;
+  return `${normalizedBase}${assetPath}`;
+};
 
 export default function TacticalView({
   room,
@@ -374,6 +411,9 @@ export default function TacticalView({
     const fighterGeometry = new THREE.ConeGeometry(2.2, 6, 12);
     fighterGeometry.rotateZ(-Math.PI / 2);
     fighterGeometry.translate(0.8, 0, 0);
+    const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
+    let loadedFighterGeometry: THREE.BufferGeometry | null = null;
+    let isDisposed = false;
 
     const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
     const collectorNose = new THREE.ConeGeometry(1.5, 2.8, 10);
@@ -386,7 +426,7 @@ export default function TacticalView({
 
     const getUnitGeometry = (unit: UnitSchema | DebugUnit) => {
       if ("unitType" in unit && unit.unitType === "FIGHTER") {
-        return fighterGeometry;
+        return loadedFighterGeometry ?? fighterGeometry;
       }
       return collectorGeometry;
     };
@@ -434,6 +474,59 @@ export default function TacticalView({
       scene.add(mesh);
       meshesRef.current.set(unit.id, { mesh, owner: unit.owner });
     };
+
+    const applyLoadedFighterGeometry = () => {
+      const units = unitsRef.current;
+      if (!units || !loadedFighterGeometry) {
+        return;
+      }
+      units.forEach((unit) => {
+        if (unit.unitType !== "FIGHTER") {
+          return;
+        }
+        const render = meshesRef.current.get(unit.id);
+        if (!render) {
+          return;
+        }
+        render.mesh.geometry.dispose();
+        render.mesh.geometry = loadedFighterGeometry.clone();
+      });
+    };
+
+    const loadFighterModel = async () => {
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await loader.loadAsync(fighterModelUrl);
+        if (isDisposed) {
+          return;
+        }
+        let fighterMesh: THREE.Mesh | null = null;
+        gltf.scene.traverse((object) => {
+          if (!fighterMesh && object instanceof THREE.Mesh) {
+            fighterMesh = object;
+          }
+        });
+        if (!fighterMesh) {
+          console.warn(
+            `[tactical] fighter model at ${fighterModelUrl} had no mesh; using primitive fallback`,
+          );
+          return;
+        }
+        loadedFighterGeometry?.dispose();
+        loadedFighterGeometry = normalizeGeometry(fighterMesh.geometry);
+        applyLoadedFighterGeometry();
+        console.log(
+          `[tactical] loaded fighter GLB model from ${fighterModelUrl}`,
+        );
+      } catch (error) {
+        console.warn(
+          `[tactical] failed to load fighter GLB model from ${fighterModelUrl}; using primitive fallback`,
+          error,
+        );
+      }
+    };
+
+    void loadFighterModel();
 
     const removeUnitMesh = (unitId: string) => {
       const render = meshesRef.current.get(unitId);
@@ -1010,6 +1103,7 @@ export default function TacticalView({
     animate();
 
     return () => {
+      isDisposed = true;
       resizeObserver.disconnect();
       if (bindPoll) {
         window.clearInterval(bindPoll);
@@ -1028,6 +1122,7 @@ export default function TacticalView({
       firingEffectsRef.current = [];
       renderer.dispose();
       fighterGeometry.dispose();
+      loadedFighterGeometry?.dispose();
       collectorGeometry.dispose();
       baseGeometry.dispose();
       resourceGeometry.dispose();
