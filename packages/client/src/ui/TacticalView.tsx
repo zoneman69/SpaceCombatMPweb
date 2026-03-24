@@ -1708,6 +1708,19 @@ export default function TacticalView({
             ) : null}
           </section>
 
+          <section className="tactical-panel tactical-panel--primary">
+            <div className="tactical-panel-header">
+              <p className="hud-title">Credits</p>
+              <div className="hud-status">
+                <span>Total available</span>
+                <strong>{Math.floor(localResourceTotal)}</strong>
+              </div>
+            </div>
+            <p className="hud-copy">
+              Total credits across all of your owned bases.
+            </p>
+          </section>
+
           <section className="tactical-panel">
             <div className="tactical-panel-header">
               <p className="hud-title">Camera controls</p>
