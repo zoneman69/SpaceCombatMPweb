@@ -588,6 +588,55 @@ body.tactical-view-scroll-locked {
   width: 100%;
 }
 
+.lab-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.75);
+  backdrop-filter: blur(2px);
+  display: grid;
+  place-items: center;
+  z-index: 30;
+  padding: 24px;
+}
+
+.lab-modal {
+  width: min(960px, 100%);
+  max-height: 85vh;
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(30, 64, 175, 0.35));
+  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.55);
+  padding: 16px;
+}
+
+.lab-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lab-tech-grid {
+  margin-top: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.lab-tech-card {
+  border: 1px solid rgba(147, 197, 253, 0.3);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 10px;
+}
+
+.lab-tech-title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
 .game-shell {
   min-height: 100vh;
   display: grid;

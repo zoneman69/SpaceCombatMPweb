@@ -45,6 +45,18 @@ export class BaseSchema extends Schema {
   @type("number") weaponMounts = 0;
   @type("number") weaponCooldownLeft = 0;
   @type("number") resourceStock = 0;
+  @type("string") activeResearchKey = "";
+  @type("number") activeResearchRemaining = 0;
+  @type("boolean") researchRepairBay = false;
+  @type("boolean") researchGarage = false;
+  @type("boolean") researchWeaponTurret = false;
+  @type("boolean") researchPlasma = false;
+  @type("boolean") researchRail = false;
+  @type("boolean") researchShields = false;
+  @type("boolean") researchHull = false;
+  @type("boolean") researchSpeed = false;
+  @type("boolean") researchRadar = false;
+  @type("boolean") researchWeaponSystems = false;
 }
 
 export class BaseModuleSchema extends Schema {
