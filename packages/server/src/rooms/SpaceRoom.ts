@@ -60,6 +60,7 @@ const REPAIR_HULL_RATE = 18;
 const REPAIR_SHIELD_RATE = 26;
 const WEAPON_TURRET_RING_COUNT = 8;
 const WEAPON_TURRET_RING_RADIUS = 18;
+const BASE_MODULE_RING_RADIUS = 13;
 const RESOURCE_HARVEST_RANGE = 4;
 const RESOURCE_COLLECTOR_CAPACITY = 25;
 const RESOURCE_DROPOFF_RANGE = 6;
@@ -1421,11 +1422,20 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     switch (moduleType) {
       case "TECH_SHOP":
-        return { x: base.x + 14, z: base.z + 12 };
+        return {
+          x: base.x + Math.cos(Math.PI / 4) * BASE_MODULE_RING_RADIUS,
+          z: base.z + Math.sin(Math.PI / 4) * BASE_MODULE_RING_RADIUS,
+        };
       case "REPAIR_BAY":
-        return { x: base.x - 16, z: base.z + 10 };
+        return {
+          x: base.x + Math.cos((3 * Math.PI) / 4) * BASE_MODULE_RING_RADIUS,
+          z: base.z + Math.sin((3 * Math.PI) / 4) * BASE_MODULE_RING_RADIUS,
+        };
       case "GARAGE":
-        return { x: base.x, z: base.z - 18 };
+        return {
+          x: base.x + Math.cos((3 * Math.PI) / 2) * BASE_MODULE_RING_RADIUS,
+          z: base.z + Math.sin((3 * Math.PI) / 2) * BASE_MODULE_RING_RADIUS,
+        };
       default:
         return null;
     }
