@@ -101,6 +101,98 @@ const TECH_UPGRADE_COSTS = {
   RADAR: 75,
   WEAPON: 120,
 };
+const LAB_RESEARCH_TREE = [
+  {
+    key: "REPAIR_BAY",
+    title: "Repair Bay Protocols",
+    description: "Unlock repair bay station module.",
+    cost: 120,
+    durationSeconds: 15,
+    prerequisiteKeys: [],
+    unlockedBy: "researchRepairBay",
+  },
+  {
+    key: "GARAGE",
+    title: "Garage Tooling",
+    description: "Unlock garage station module.",
+    cost: 140,
+    durationSeconds: 18,
+    prerequisiteKeys: [],
+    unlockedBy: "researchGarage",
+  },
+  {
+    key: "WEAPON_TURRET",
+    title: "Orbital Turret Grid",
+    description: "Unlock weapon turret station module.",
+    cost: 160,
+    durationSeconds: 20,
+    prerequisiteKeys: [],
+    unlockedBy: "researchWeaponTurret",
+  },
+  {
+    key: "PLASMA_WEAPONS",
+    title: "Plasma Weapons",
+    description: "Unlock plasma loadouts in garage and turrets.",
+    cost: 130,
+    durationSeconds: 16,
+    prerequisiteKeys: ["GARAGE"],
+    unlockedBy: "researchPlasma",
+  },
+  {
+    key: "RAIL_WEAPONS",
+    title: "Rail Weapons",
+    description: "Unlock rail loadouts in garage and turrets.",
+    cost: 180,
+    durationSeconds: 22,
+    prerequisiteKeys: ["PLASMA_WEAPONS"],
+    unlockedBy: "researchRail",
+  },
+  {
+    key: "SHIELDS",
+    title: "Shield Amplifiers",
+    description: "Enable shield upgrades in the lab.",
+    cost: 130,
+    durationSeconds: 16,
+    prerequisiteKeys: [],
+    unlockedBy: "researchShields",
+  },
+  {
+    key: "HULL",
+    title: "Hull Reinforcement",
+    description: "Enable hull upgrades in the lab.",
+    cost: 140,
+    durationSeconds: 18,
+    prerequisiteKeys: [],
+    unlockedBy: "researchHull",
+  },
+  {
+    key: "SPEED",
+    title: "Engine Overdrive",
+    description: "Enable speed upgrades in the lab.",
+    cost: 155,
+    durationSeconds: 20,
+    prerequisiteKeys: [],
+    unlockedBy: "researchSpeed",
+  },
+  {
+    key: "RADAR",
+    title: "Deep Radar",
+    description: "Enable radar upgrades in the lab.",
+    cost: 125,
+    durationSeconds: 14,
+    prerequisiteKeys: [],
+    unlockedBy: "researchRadar",
+  },
+  {
+    key: "WEAPON_SYSTEMS",
+    title: "Weapon Systems",
+    description: "Enable weapon damage upgrades in the lab.",
+    cost: 170,
+    durationSeconds: 22,
+    prerequisiteKeys: [],
+    unlockedBy: "researchWeaponSystems",
+  },
+] as const;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const WEAPON_TURRET_RING_COUNT = 8;
 const MODULE_INTERACTION_RANGE = 6;
@@ -239,6 +331,7 @@ export default function TacticalView({
     useState<(typeof WEAPON_TYPES)[number]>("LASER");
   const [garageWeaponType, setGarageWeaponType] =
     useState<(typeof WEAPON_TYPES)[number]>("LASER");
+  const [isLabModalOpen, setIsLabModalOpen] = useState(false);
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -1595,6 +1688,12 @@ export default function TacticalView({
     !!selectedBase && selectedBase.resourceStock >= RESOURCE_COLLECTOR_COST;
   const canBuildFighter =
     !!selectedBase && selectedBase.resourceStock >= FIGHTER_COST;
+  const researchStateByKey = new Map(
+    LAB_RESEARCH_TREE.map((research) => [
+      research.key,
+      !!selectedBase?.[research.unlockedBy],
+    ]),
+  );
   const selectedModule = selectedModuleId
     ? modulesRef.current?.get(selectedModuleId) ?? null
     : null;
@@ -1621,16 +1720,58 @@ export default function TacticalView({
     selectedBase.resourceStock >= MODULE_TECH_SHOP_COST;
   const canPurchaseRepairBay =
     !!selectedBase &&
+    !!selectedBase.researchRepairBay &&
     !hasRepairBay &&
     selectedBase.resourceStock >= MODULE_REPAIR_BAY_COST;
   const canPurchaseGarage =
     !!selectedBase &&
+    !!selectedBase.researchGarage &&
     !hasGarage &&
     selectedBase.resourceStock >= MODULE_GARAGE_COST;
   const canPurchaseWeaponTurret =
     !!selectedBase &&
+    !!selectedBase.researchWeaponTurret &&
     weaponTurretCount < WEAPON_TURRET_RING_COUNT &&
     selectedBase.resourceStock >= MODULE_WEAPON_TURRET_COST;
+  const availableWeaponTypes = WEAPON_TYPES.filter((weaponType) => {
+    if (!selectedBase) {
+      return weaponType === "LASER";
+    }
+    if (weaponType === "LASER") {
+      return true;
+    }
+    if (weaponType === "PLASMA") {
+      return selectedBase.researchPlasma;
+    }
+    return selectedBase.researchRail;
+  });
+  const availableTechUpgrades = Object.entries(TECH_UPGRADE_COSTS).filter(
+    ([upgradeType]) => {
+      if (!selectedBase) {
+        return false;
+      }
+      switch (upgradeType) {
+        case "SHIELDS":
+          return selectedBase.researchShields;
+        case "HULL":
+          return selectedBase.researchHull;
+        case "SPEED":
+          return selectedBase.researchSpeed;
+        case "RADAR":
+          return selectedBase.researchRadar;
+        case "WEAPON":
+          return selectedBase.researchWeaponSystems;
+        default:
+          return false;
+      }
+    },
+  );
+  const effectiveModuleWeaponType = availableWeaponTypes.includes(moduleWeaponType)
+    ? moduleWeaponType
+    : "LASER";
+  const effectiveGarageWeaponType = availableWeaponTypes.includes(garageWeaponType)
+    ? garageWeaponType
+    : "LASER";
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
       ? selectedUnit.unitType
@@ -1945,7 +2086,7 @@ export default function TacticalView({
                 <div className="mount-card-header">
                   <div>
                     <p className="mount-label">Research</p>
-                    <p className="mount-title">Tech shop</p>
+                    <p className="mount-title">Lab</p>
                   </div>
                   <span className="mount-badge">
                     {hasTechShop ? "Online" : "Offline"}
@@ -1953,7 +2094,7 @@ export default function TacticalView({
                 </div>
                 <div className="mount-card-body">
                   <p className="mount-meta">
-                    Cost: {MODULE_TECH_SHOP_COST} · Upgrade ship stats.
+                    Cost: {MODULE_TECH_SHOP_COST} · Unlock the lab tech tree.
                   </p>
                   <button
                     className="hud-button mount-action"
@@ -1969,8 +2110,17 @@ export default function TacticalView({
                       });
                     }}
                   >
-                    {hasTechShop ? "Tech shop installed" : "Purchase tech shop"}
+                    {hasTechShop ? "Lab installed" : "Purchase lab"}
                   </button>
+                  {hasTechShop ? (
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      onClick={() => setIsLabModalOpen(true)}
+                    >
+                      Open lab tech tree
+                    </button>
+                  ) : null}
                 </div>
               </div>
               <div className="mount-card">
@@ -2056,14 +2206,14 @@ export default function TacticalView({
                   <label className="mount-select">
                     Weapon type
                     <select
-                      value={moduleWeaponType}
+                      value={effectiveModuleWeaponType}
                       onChange={(event) =>
                         setModuleWeaponType(
                           event.target.value as (typeof WEAPON_TYPES)[number],
                         )
                       }
                     >
-                      {WEAPON_TYPES.map((type) => (
+                      {availableWeaponTypes.map((type) => (
                         <option key={type} value={type}>
                           {type}
                         </option>
@@ -2081,7 +2231,7 @@ export default function TacticalView({
                       room.send("base:purchaseModule", {
                         baseId: selectedBase.id,
                         moduleType: "WEAPON_TURRET",
-                        weaponType: moduleWeaponType,
+                        weaponType: effectiveModuleWeaponType,
                       });
                     }}
                   >
@@ -2113,14 +2263,14 @@ export default function TacticalView({
                     <label className="mount-select">
                       Weapon type
                       <select
-                        value={garageWeaponType}
+                        value={effectiveGarageWeaponType}
                         onChange={(event) =>
                           setGarageWeaponType(
                             event.target.value as (typeof WEAPON_TYPES)[number],
                           )
                         }
                       >
-                        {WEAPON_TYPES.map((type) => (
+                      {availableWeaponTypes.map((type) => (
                           <option key={type} value={type}>
                             {type}
                           </option>
@@ -2136,13 +2286,13 @@ export default function TacticalView({
                           return;
                         }
                         room.send("module:garageWeapon", {
-                          moduleId: selectedModule.id,
-                          unitId: selectedUnit.id,
-                          weaponType: garageWeaponType,
-                        });
-                      }}
-                    >
-                      Install {garageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
+                            moduleId: selectedModule.id,
+                            unitId: selectedUnit.id,
+                            weaponType: effectiveGarageWeaponType,
+                          });
+                        }}
+                      >
+                      Install {effectiveGarageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
                     </button>
                   </>
                 ) : null}
@@ -2150,31 +2300,37 @@ export default function TacticalView({
                   <>
                     <p className="hud-copy">
                       {selectedUnitAtModule
-                        ? "Upgrade ship stats for resources."
-                        : "Move a ship here to access upgrades."}
+                        ? "Upgrade ship stats for resources (researched upgrades only)."
+                        : "Move a ship here to access researched upgrades."}
                     </p>
-                    <div className="module-actions">
-                      {Object.entries(TECH_UPGRADE_COSTS).map(([key, cost]) => (
-                        <button
-                          key={key}
-                          className="hud-button mount-action"
-                          type="button"
-                          disabled={!selectedUnitAtModule || !room || !selectedBase}
-                          onClick={() => {
-                            if (!room || !selectedModule || !selectedUnit) {
-                              return;
-                            }
-                            room.send("module:techUpgrade", {
-                              moduleId: selectedModule.id,
-                              unitId: selectedUnit.id,
-                              upgradeType: key,
-                            });
-                          }}
-                        >
-                          Upgrade {key} ({cost})
-                        </button>
-                      ))}
-                    </div>
+                    {availableTechUpgrades.length > 0 ? (
+                      <div className="module-actions">
+                        {availableTechUpgrades.map(([key, cost]) => (
+                          <button
+                            key={key}
+                            className="hud-button mount-action"
+                            type="button"
+                            disabled={!selectedUnitAtModule || !room || !selectedBase}
+                            onClick={() => {
+                              if (!room || !selectedModule || !selectedUnit) {
+                                return;
+                              }
+                              room.send("module:techUpgrade", {
+                                moduleId: selectedModule.id,
+                                unitId: selectedUnit.id,
+                                upgradeType: key,
+                              });
+                            }}
+                          >
+                            Upgrade {key} ({cost})
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="hud-copy">
+                        No upgrades researched yet. Use the lab tech tree first.
+                      </p>
+                    )}
                   </>
                 ) : null}
                 {selectedModule.moduleType === "REPAIR_BAY" ? (
@@ -2223,6 +2379,92 @@ export default function TacticalView({
         {isSidebarOpen ? "Hide panel" : "Show panel"} · Credits{" "}
         {Math.floor(localResourceTotal)}
       </button>
+      {isLabModalOpen && selectedBase
+        ? createPortal(
+            <div className="lab-modal-backdrop" role="presentation">
+              <div
+                className="lab-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Lab tech tree"
+              >
+                <div className="lab-modal-header">
+                  <div>
+                    <p className="mount-label">Research</p>
+                    <p className="mount-title">Lab Tech Tree</p>
+                  </div>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsLabModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  Queue one research at a time. Default unlocks remain resource
+                  collectors, fighters, and lasers.
+                </p>
+                <p className="hud-copy">
+                  Active research:{" "}
+                  {selectedBase.activeResearchKey
+                    ? `${selectedBase.activeResearchKey} (${Math.ceil(
+                        selectedBase.activeResearchRemaining,
+                      )}s)`
+                    : "none"}
+                </p>
+                <div className="lab-tech-grid">
+                  {LAB_RESEARCH_TREE.map((research) => {
+                    const isUnlocked = !!selectedBase[research.unlockedBy];
+                    const hasPrereqs = research.prerequisiteKeys.every(
+                      (prereq) => researchStateByKey.get(prereq),
+                    );
+                    const isActive =
+                      selectedBase.activeResearchKey === research.key;
+                    const canStart =
+                      !isUnlocked &&
+                      !isActive &&
+                      !selectedBase.activeResearchKey &&
+                      hasPrereqs &&
+                      selectedBase.resourceStock >= research.cost;
+                    return (
+                      <div className="lab-tech-card" key={research.key}>
+                        <p className="lab-tech-title">{research.title}</p>
+                        <p className="mount-meta">{research.description}</p>
+                        <p className="mount-meta">
+                          Cost {research.cost} · Time {research.durationSeconds}s
+                        </p>
+                        <button
+                          className="hud-button mount-action"
+                          type="button"
+                          disabled={!canStart}
+                          onClick={() => {
+                            if (!room || !selectedBase) {
+                              return;
+                            }
+                            room.send("lab:startResearch", {
+                              baseId: selectedBase.id,
+                              researchKey: research.key,
+                            });
+                          }}
+                        >
+                          {isUnlocked
+                            ? "Researched"
+                            : isActive
+                              ? "Researching..."
+                              : hasPrereqs
+                                ? "Start research"
+                                : "Locked by prerequisite"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }

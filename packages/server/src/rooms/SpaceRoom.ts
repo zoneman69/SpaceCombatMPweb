@@ -54,6 +54,7 @@ const MODULE_GARAGE_COST = 260;
 const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
+const RESEARCH_PREREQ_BASE_MODULE = "RESEARCH_LAB";
 const REPAIR_BAY_RANGE = 5;
 const REPAIR_HULL_RATE = 18;
 const REPAIR_SHIELD_RATE = 26;
@@ -94,6 +95,88 @@ const UNIT_CONFIG: Record<
     weaponMounts: 1,
     techMounts: 1,
     shieldCapacity: 75,
+  },
+};
+
+type BaseResearchKey =
+  | "researchRepairBay"
+  | "researchGarage"
+  | "researchWeaponTurret"
+  | "researchPlasma"
+  | "researchRail"
+  | "researchShields"
+  | "researchHull"
+  | "researchSpeed"
+  | "researchRadar"
+  | "researchWeaponSystems";
+
+type ResearchDefinition = {
+  cost: number;
+  durationSeconds: number;
+  unlock: BaseResearchKey;
+  prerequisites?: string[];
+};
+
+const RESEARCH_TREE: Record<string, ResearchDefinition> = {
+  REPAIR_BAY: {
+    cost: 120,
+    durationSeconds: 15,
+    unlock: "researchRepairBay",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  GARAGE: {
+    cost: 140,
+    durationSeconds: 18,
+    unlock: "researchGarage",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  WEAPON_TURRET: {
+    cost: 160,
+    durationSeconds: 20,
+    unlock: "researchWeaponTurret",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  PLASMA_WEAPONS: {
+    cost: 130,
+    durationSeconds: 16,
+    unlock: "researchPlasma",
+    prerequisites: ["GARAGE"],
+  },
+  RAIL_WEAPONS: {
+    cost: 180,
+    durationSeconds: 22,
+    unlock: "researchRail",
+    prerequisites: ["PLASMA_WEAPONS"],
+  },
+  SHIELDS: {
+    cost: 130,
+    durationSeconds: 16,
+    unlock: "researchShields",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  HULL: {
+    cost: 140,
+    durationSeconds: 18,
+    unlock: "researchHull",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  SPEED: {
+    cost: 155,
+    durationSeconds: 20,
+    unlock: "researchSpeed",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  RADAR: {
+    cost: 125,
+    durationSeconds: 14,
+    unlock: "researchRadar",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  WEAPON_SYSTEMS: {
+    cost: 170,
+    durationSeconds: 22,
+    unlock: "researchWeaponSystems",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
   },
 };
 const require = createRequire(import.meta.url);
@@ -188,6 +271,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         payload: { moduleId?: string; unitId?: string; upgradeType?: string },
       ) => {
         this.handleTechUpgrade(client, payload);
+      },
+    );
+
+    this.onMessage(
+      "lab:startResearch",
+      (client, payload: { baseId?: string; researchKey?: string }) => {
+        this.handleStartResearch(client, payload);
       },
     );
 
@@ -351,6 +441,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.removeDestroyedBases();
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
+    this.processResearch(dt);
   }
 
   private removeDestroyedUnits() {
@@ -752,6 +843,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.weaponMounts = 0;
     base.weaponCooldownLeft = 0;
     base.resourceStock = BASE_STARTING_RESOURCES;
+    base.activeResearchKey = "";
+    base.activeResearchRemaining = 0;
+    base.researchRepairBay = false;
+    base.researchGarage = false;
+    base.researchWeaponTurret = false;
+    base.researchPlasma = false;
+    base.researchRail = false;
+    base.researchShields = false;
+    base.researchHull = false;
+    base.researchSpeed = false;
+    base.researchRadar = false;
+    base.researchWeaponSystems = false;
     this.state.bases.set(base.id, base);
     console.log("[lobby] base spawned", {
       sessionId,
@@ -922,6 +1025,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       });
       return;
     }
+    if (!this.isModuleTypeResearched(base, moduleType)) {
+      console.log("[lobby] module purchase rejected (module not researched)", {
+        sessionId: client.sessionId,
+        baseId,
+        moduleType,
+      });
+      return;
+    }
     if (moduleType !== "WEAPON_TURRET") {
       const existing = this.findModuleByType(baseId, moduleType);
       if (existing) {
@@ -936,6 +1047,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       console.log("[lobby] module purchase rejected (missing weapon type)", {
         sessionId: client.sessionId,
         baseId,
+      });
+      return;
+    } else if (!this.isWeaponResearched(base, payload.weaponType)) {
+      console.log("[lobby] module purchase rejected (weapon not researched)", {
+        sessionId: client.sessionId,
+        baseId,
+        weaponType: payload.weaponType,
       });
       return;
     }
@@ -1027,6 +1145,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (base.resourceStock < UNIT_WEAPON_MOUNT_COST) {
       return;
     }
+    if (!this.isWeaponResearched(base, weaponType)) {
+      return;
+    }
     unit.weaponType = weaponType;
     unit.weaponMounts = Math.min(MAX_UNIT_WEAPON_MOUNTS, unit.weaponMounts + 1);
     base.resourceStock -= UNIT_WEAPON_MOUNT_COST;
@@ -1065,6 +1186,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (cost <= 0 || base.resourceStock < cost) {
       return;
     }
+    if (!this.isTechUpgradeResearched(base, upgradeType)) {
+      return;
+    }
     base.resourceStock -= cost;
     switch (upgradeType) {
       case "SHIELDS":
@@ -1087,6 +1211,74 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       default:
         break;
     }
+  }
+
+  private handleStartResearch(
+    client: Colyseus.Client,
+    payload: { baseId?: string; researchKey?: string },
+  ) {
+    const baseId = payload?.baseId;
+    const researchKey = payload?.researchKey ?? "";
+    if (!baseId || !researchKey) {
+      return;
+    }
+    const base = this.state.bases.get(baseId);
+    if (!base || base.owner !== client.sessionId) {
+      return;
+    }
+    if (!this.findModuleByType(baseId, "TECH_SHOP")) {
+      return;
+    }
+    if (base.activeResearchKey) {
+      return;
+    }
+    const definition = RESEARCH_TREE[researchKey];
+    if (!definition || base[definition.unlock]) {
+      return;
+    }
+    if (!this.areResearchPrerequisitesMet(base, definition.prerequisites ?? [])) {
+      return;
+    }
+    if (base.resourceStock < definition.cost) {
+      return;
+    }
+    base.resourceStock -= definition.cost;
+    base.activeResearchKey = researchKey;
+    base.activeResearchRemaining = definition.durationSeconds;
+  }
+
+  private processResearch(dt: number) {
+    for (const base of this.state.bases.values()) {
+      if (!base.activeResearchKey || base.activeResearchRemaining <= 0) {
+        continue;
+      }
+      base.activeResearchRemaining = Math.max(
+        0,
+        base.activeResearchRemaining - dt,
+      );
+      if (base.activeResearchRemaining > 0) {
+        continue;
+      }
+      const definition = RESEARCH_TREE[base.activeResearchKey];
+      if (definition) {
+        base[definition.unlock] = true;
+      }
+      base.activeResearchKey = "";
+      base.activeResearchRemaining = 0;
+    }
+  }
+
+  private areResearchPrerequisitesMet(base: BaseSchema, prerequisites: string[]) {
+    return prerequisites.every((prerequisite) => {
+      if (prerequisite === RESEARCH_PREREQ_BASE_MODULE) {
+        return !!this.findModuleByType(base.id, "TECH_SHOP");
+      }
+      const definition = RESEARCH_TREE[prerequisite];
+      if (!definition) {
+        return false;
+      }
+      return !!base[definition.unlock];
+    });
   }
 
   private processRepairBays(dt: number) {
@@ -1112,6 +1304,51 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           );
         }
       }
+    }
+  }
+
+  private isModuleTypeResearched(base: BaseSchema, moduleType: string) {
+    switch (moduleType) {
+      case "TECH_SHOP":
+        return true;
+      case "REPAIR_BAY":
+        return base.researchRepairBay;
+      case "GARAGE":
+        return base.researchGarage;
+      case "WEAPON_TURRET":
+        return base.researchWeaponTurret;
+      default:
+        return false;
+    }
+  }
+
+  private isWeaponResearched(base: BaseSchema, weaponType: string) {
+    switch (weaponType) {
+      case "LASER":
+        return true;
+      case "PLASMA":
+        return base.researchPlasma;
+      case "RAIL":
+        return base.researchRail;
+      default:
+        return false;
+    }
+  }
+
+  private isTechUpgradeResearched(base: BaseSchema, upgradeType: string) {
+    switch (upgradeType) {
+      case "SHIELDS":
+        return base.researchShields;
+      case "HULL":
+        return base.researchHull;
+      case "SPEED":
+        return base.researchSpeed;
+      case "RADAR":
+        return base.researchRadar;
+      case "WEAPON":
+        return base.researchWeaponSystems;
+      default:
+        return false;
     }
   }
 
