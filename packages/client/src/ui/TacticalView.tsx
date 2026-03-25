@@ -1675,6 +1675,37 @@ export default function TacticalView({
     }
   };
 
+  const handleDeselectAllUnits = () => {
+    setSelection(null);
+    setSelectedUnitIds([]);
+  };
+
+  const handleReturnCameraToBase = () => {
+    const localOwner = localSessionIdRef.current;
+    if (!localOwner) {
+      return;
+    }
+    let centerX = 0;
+    let centerZ = 0;
+    let count = 0;
+    basesRef.current?.forEach((base) => {
+      if (base.owner !== localOwner) {
+        return;
+      }
+      centerX += base.x;
+      centerZ += base.z;
+      count += 1;
+    });
+    if (count === 0) {
+      return;
+    }
+    const targetX = centerX / count;
+    const targetZ = centerZ / count;
+    cameraTargetRef.current.set(targetX, 0, targetZ);
+    cameraDesiredTargetRef.current.set(targetX, 0, targetZ);
+    setCameraMode("free");
+  };
+
   const selectedUnit = selection?.id
     ? unitsRef.current?.get(selection.id) ??
       fallbackUnitsRef.current.get(selection.id) ??
@@ -1989,6 +2020,21 @@ export default function TacticalView({
                 disabled={cameraMode === "free"}
               >
                 Free camera
+              </button>
+              <button
+                className="hud-button"
+                type="button"
+                onClick={handleDeselectAllUnits}
+                disabled={selectedUnitIds.length === 0 && !selection?.id}
+              >
+                Deselect all units
+              </button>
+              <button
+                className="hud-button"
+                type="button"
+                onClick={handleReturnCameraToBase}
+              >
+                Return camera to base
               </button>
             </div>
           </section>
