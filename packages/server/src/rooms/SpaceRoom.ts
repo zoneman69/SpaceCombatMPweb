@@ -1162,12 +1162,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       for (const module of this.state.modules.values()) {
         if (module.baseId === base.id && module.moduleType === "WEAPON_TURRET") {
           const angle = Math.atan2(module.z - base.z, module.x - base.x);
-          const slot = Math.round(
-            ((angle + Math.PI) / (Math.PI * 2)) * WEAPON_TURRET_RING_COUNT,
-          );
-          usedSlots.add(
-            (slot + WEAPON_TURRET_RING_COUNT) % WEAPON_TURRET_RING_COUNT,
-          );
+          const normalizedAngle = (angle + Math.PI * 2) % (Math.PI * 2);
+          const slotSize = (Math.PI * 2) / WEAPON_TURRET_RING_COUNT;
+          const slot =
+            Math.floor((normalizedAngle + slotSize * 0.5) / slotSize) %
+            WEAPON_TURRET_RING_COUNT;
+          usedSlots.add(slot);
         }
       }
       for (let i = 0; i < WEAPON_TURRET_RING_COUNT; i += 1) {
