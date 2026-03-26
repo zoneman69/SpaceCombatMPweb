@@ -297,8 +297,10 @@ const WEAPON_TYPES = [
 ] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
+const STORAGE_CONTAINER_MODEL_PATH = "assets/models/storage_container.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
 const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
+const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
@@ -591,8 +593,10 @@ export default function TacticalView({
     fighterGeometry.translate(0.8, 0, 0);
     const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
     const collectorModelUrl = resolveRuntimeAssetUrl(COLLECTOR_MODEL_PATH);
+    const storageContainerModelUrl = resolveRuntimeAssetUrl(STORAGE_CONTAINER_MODEL_PATH);
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
     let loadedCollectorGeometry: THREE.BufferGeometry | null = null;
+    let loadedStorageContainerGeometry: THREE.BufferGeometry | null = null;
     let isDisposed = false;
 
     const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
@@ -661,7 +665,7 @@ export default function TacticalView({
       if (unit.unitType === "RESOURCE_COLLECTOR") {
         for (let index = 0; index < tankCount; index += 1) {
           const tank = new THREE.Mesh(
-            collectorTankGeometry.clone(),
+            (loadedStorageContainerGeometry ?? collectorTankGeometry).clone(),
             new THREE.MeshStandardMaterial({
               color,
               emissive: new THREE.Color("#0b1b3a"),
@@ -980,8 +984,64 @@ export default function TacticalView({
       }
     };
 
+    const loadStorageContainerModel = async () => {
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await loader.loadAsync(storageContainerModelUrl);
+        if (isDisposed) {
+          return;
+        }
+        let containerMesh: THREE.Mesh | null = null;
+        gltf.scene.traverse((object) => {
+          if (!containerMesh && object instanceof THREE.Mesh) {
+            containerMesh = object;
+          }
+        });
+        if (!containerMesh) {
+          console.warn(
+            `[tactical] storage container model at ${storageContainerModelUrl} had no mesh; using primitive fallback`,
+          );
+          return;
+        }
+        loadedStorageContainerGeometry?.dispose();
+        const containerModelData = extractNormalizedModelData(
+          gltf,
+          containerMesh,
+          STORAGE_CONTAINER_MODEL_TARGET_SIZE,
+        );
+        loadedStorageContainerGeometry = containerModelData.geometry;
+        const units = unitsRef.current;
+        if (units) {
+          units.forEach((unit) => {
+            if (unit.unitType !== "RESOURCE_COLLECTOR") {
+              return;
+            }
+            const render = meshesRef.current.get(unit.id);
+            if (!render) {
+              return;
+            }
+            const color =
+              render.owner === localSessionIdRef.current
+                ? UNIT_COLORS.friendly
+                : UNIT_COLORS.enemy;
+            render.attachmentSignature = "";
+            updateUnitAttachments(unit, render, color);
+          });
+        }
+        console.log(
+          `[tactical] loaded storage container GLB model from ${storageContainerModelUrl}`,
+        );
+      } catch (error) {
+        console.warn(
+          `[tactical] failed to load storage container GLB model from ${storageContainerModelUrl}; using primitive fallback`,
+          error,
+        );
+      }
+    };
+
     void loadFighterModel();
     void loadCollectorModel();
+    void loadStorageContainerModel();
 
     const removeUnitMesh = (unitId: string) => {
       const render = meshesRef.current.get(unitId);
@@ -1588,6 +1648,7 @@ export default function TacticalView({
       fighterGeometry.dispose();
       loadedFighterGeometry?.dispose();
       loadedCollectorGeometry?.dispose();
+      loadedStorageContainerGeometry?.dispose();
       collectorGeometry.dispose();
       fighterWeaponGeometry.dispose();
       collectorTankGeometry.dispose();
@@ -2649,7 +2710,7 @@ export default function TacticalView({
                 </div>
                 <div className="mount-card-body">
                   <p className="mount-meta">
-                    Cost: {MODULE_GARAGE_COST} · Install new weapon types.
+                    Cost: {MODULE_GARAGE_COST} · Install weapon mounts, containers, and ship upgrades.
                   </p>
                   <button
                     className="hud-button mount-action"
@@ -2737,8 +2798,8 @@ export default function TacticalView({
                   <>
                     <p className="hud-copy">
                       {selectedUnitAtModule
-                        ? "Unit docked. Choose a weapon loadout."
-                        : "Move a ship here to install new weapons."}
+                        ? "Unit docked. Configure weapons, containers, and ship upgrades."
+                        : "Move a ship here to configure loadout upgrades."}
                     </p>
                     <label className="mount-select">
                       Weapon type
@@ -2771,18 +2832,9 @@ export default function TacticalView({
                             weaponType: effectiveGarageWeaponType,
                           });
                         }}
-                      >
+                    >
                       Install {effectiveGarageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
                     </button>
-                  </>
-                ) : null}
-                {selectedModule.moduleType === "TECH_SHOP" && selectedUnit ? (
-                  <>
-                    <p className="hud-copy">
-                      {selectedUnitAtModule
-                        ? "Upgrade ship stats for resources (researched upgrades only)."
-                        : "Move a ship here to access researched upgrades."}
-                    </p>
                     {availableTechUpgrades.length > 0 ? (
                       <div className="module-actions">
                         {availableTechUpgrades.map(([key, cost]) => (
@@ -2808,10 +2860,16 @@ export default function TacticalView({
                       </div>
                     ) : (
                       <p className="hud-copy">
-                        No upgrades researched yet. Use the lab tech tree first.
+                        No ship upgrades researched yet. Use the lab tech tree first.
                       </p>
                     )}
                   </>
+                ) : null}
+                {selectedModule.moduleType === "TECH_SHOP" ? (
+                  <p className="hud-copy">
+                    Research is managed in the lab tree. Ship loadout upgrades are now installed
+                    from the Garage module.
+                  </p>
                 ) : null}
                 {selectedModule.moduleType === "REPAIR_BAY" ? (
                   <p className="hud-copy">
