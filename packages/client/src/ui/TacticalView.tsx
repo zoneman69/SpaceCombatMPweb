@@ -24,6 +24,8 @@ type CameraMode = "squad" | "selected" | "free";
 type UnitRender = {
   mesh: THREE.Mesh;
   owner: string;
+  attachmentGroup: THREE.Group;
+  attachmentSignature: string;
 };
 
 type MapRender = {
@@ -205,7 +207,12 @@ const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
 const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
+const COLLECTOR_MODEL_PATH = "assets/models/resource_collector.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
+const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
+const COLLECTOR_BASE_CAPACITY = 25;
+const COLLECTOR_TANK_CAPACITY_STEP = 25;
+const COLLECTOR_MAX_TANK_UPGRADES = 4;
 
 const normalizeGeometry = (
   sourceGeometry: THREE.BufferGeometry,
@@ -239,6 +246,17 @@ const resolveRuntimeAssetUrl = (assetPath: string) => {
     ? import.meta.env.BASE_URL
     : `${import.meta.env.BASE_URL}/`;
   return `${normalizedBase}${assetPath}`;
+};
+
+const getCollectorTankUpgradeCount = (unit: UnitSchema | DebugUnit) => {
+  if (!("cargoCapacity" in unit)) {
+    return 0;
+  }
+  const capacityDelta = Math.max(0, unit.cargoCapacity - COLLECTOR_BASE_CAPACITY);
+  return Math.min(
+    COLLECTOR_MAX_TANK_UPGRADES,
+    Math.floor(capacityDelta / COLLECTOR_TANK_CAPACITY_STEP),
+  );
 };
 
 export default function TacticalView({
@@ -505,7 +523,9 @@ export default function TacticalView({
     fighterGeometry.rotateZ(-Math.PI / 2);
     fighterGeometry.translate(0.8, 0, 0);
     const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
+    const collectorModelUrl = resolveRuntimeAssetUrl(COLLECTOR_MODEL_PATH);
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
+    let loadedCollectorGeometry: THREE.BufferGeometry | null = null;
     let isDisposed = false;
 
     const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
@@ -521,7 +541,100 @@ export default function TacticalView({
       if ("unitType" in unit && unit.unitType === "FIGHTER") {
         return loadedFighterGeometry ?? fighterGeometry;
       }
-      return collectorGeometry;
+      return loadedCollectorGeometry ?? collectorGeometry;
+    };
+    const fighterWeaponMountPoints = [
+      new THREE.Vector3(0.8, 0.2, -0.9),
+      new THREE.Vector3(0.8, 0.2, 0.9),
+      new THREE.Vector3(-0.1, 0.35, 0),
+    ];
+    const collectorTankMountPoints = [
+      new THREE.Vector3(-1.2, 0.9, -1.3),
+      new THREE.Vector3(-1.2, 0.9, 1.3),
+      new THREE.Vector3(-2.8, 0.9, -1.3),
+      new THREE.Vector3(-2.8, 0.9, 1.3),
+    ];
+    const collectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
+    const fighterWeaponGeometry = new THREE.BoxGeometry(0.85, 0.35, 0.35);
+    const collectorTankGeometry = new THREE.CylinderGeometry(0.38, 0.38, 1.65, 12);
+    collectorTankGeometry.rotateZ(Math.PI / 2);
+    const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
+    collectorWeaponGeometry.rotateZ(Math.PI / 2);
+
+    const updateUnitAttachments = (
+      unit: UnitSchema | DebugUnit,
+      render: UnitRender,
+      color: THREE.ColorRepresentation,
+    ) => {
+      if (!("unitType" in unit)) {
+        return;
+      }
+      const tankCount =
+        unit.unitType === "RESOURCE_COLLECTOR" ? getCollectorTankUpgradeCount(unit) : 0;
+      const weaponMounts = Math.max(0, Math.min(1, unit.weaponMounts ?? 0));
+      const signature = `${unit.unitType}:${tankCount}:${weaponMounts}`;
+      if (signature === render.attachmentSignature) {
+        return;
+      }
+
+      while (render.attachmentGroup.children.length > 0) {
+        const child = render.attachmentGroup.children[0];
+        if (!child) {
+          continue;
+        }
+        render.attachmentGroup.remove(child);
+        const childMesh = child as THREE.Mesh;
+        childMesh.geometry.dispose();
+        (childMesh.material as THREE.Material).dispose();
+      }
+
+      if (unit.unitType === "RESOURCE_COLLECTOR") {
+        for (let index = 0; index < tankCount; index += 1) {
+          const tank = new THREE.Mesh(
+            collectorTankGeometry.clone(),
+            new THREE.MeshStandardMaterial({
+              color,
+              emissive: new THREE.Color("#0b1b3a"),
+              metalness: 0.45,
+              roughness: 0.45,
+            }),
+          );
+          tank.position.copy(collectorTankMountPoints[index]);
+          render.attachmentGroup.add(tank);
+        }
+        if (weaponMounts > 0) {
+          const weapon = new THREE.Mesh(
+            collectorWeaponGeometry.clone(),
+            new THREE.MeshStandardMaterial({
+              color,
+              emissive: new THREE.Color("#0b1b3a"),
+              metalness: 0.2,
+              roughness: 0.35,
+            }),
+          );
+          weapon.position.copy(collectorWeaponMountPoint);
+          render.attachmentGroup.add(weapon);
+        }
+      } else if (unit.unitType === "FIGHTER") {
+        const fighterMounts = Math.max(
+          1,
+          Math.min(fighterWeaponMountPoints.length, unit.weaponMounts ?? 0),
+        );
+        for (let index = 0; index < fighterMounts; index += 1) {
+          const pod = new THREE.Mesh(
+            fighterWeaponGeometry.clone(),
+            new THREE.MeshStandardMaterial({
+              color,
+              emissive: new THREE.Color("#081324"),
+              metalness: 0.3,
+              roughness: 0.5,
+            }),
+          );
+          pod.position.copy(fighterWeaponMountPoints[index]);
+          render.attachmentGroup.add(pod);
+        }
+      }
+      render.attachmentSignature = signature;
     };
     const baseGeometry = new THREE.CylinderGeometry(4.4, 5.6, 4, 12);
     const resourceGeometry = new THREE.OctahedronGeometry(3.4, 0);
@@ -562,10 +675,23 @@ export default function TacticalView({
         emissive: new THREE.Color("#0b1b3a"),
       });
       const mesh = new THREE.Mesh(getUnitGeometry(unit).clone(), material);
+      const attachmentGroup = new THREE.Group();
+      mesh.add(attachmentGroup);
       mesh.position.set(unit.x, 0, unit.z);
       mesh.userData = { id: unit.id };
       scene.add(mesh);
-      meshesRef.current.set(unit.id, { mesh, owner: unit.owner });
+      const color =
+        unit.owner === localSessionIdRef.current
+          ? UNIT_COLORS.friendly
+          : UNIT_COLORS.enemy;
+      const render: UnitRender = {
+        mesh,
+        owner: unit.owner,
+        attachmentGroup,
+        attachmentSignature: "",
+      };
+      updateUnitAttachments(unit, render, color);
+      meshesRef.current.set(unit.id, render);
     };
 
     const applyLoadedFighterGeometry = () => {
@@ -583,6 +709,24 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedFighterGeometry.clone();
+      });
+    };
+
+    const applyLoadedCollectorGeometry = () => {
+      const units = unitsRef.current;
+      if (!units || !loadedCollectorGeometry) {
+        return;
+      }
+      units.forEach((unit) => {
+        if (unit.unitType !== "RESOURCE_COLLECTOR") {
+          return;
+        }
+        const render = meshesRef.current.get(unit.id);
+        if (!render) {
+          return;
+        }
+        render.mesh.geometry.dispose();
+        render.mesh.geometry = loadedCollectorGeometry.clone();
       });
     };
 
@@ -619,7 +763,44 @@ export default function TacticalView({
       }
     };
 
+    const loadCollectorModel = async () => {
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await loader.loadAsync(collectorModelUrl);
+        if (isDisposed) {
+          return;
+        }
+        let collectorMesh: THREE.Mesh | null = null;
+        gltf.scene.traverse((object) => {
+          if (!collectorMesh && object instanceof THREE.Mesh) {
+            collectorMesh = object;
+          }
+        });
+        if (!collectorMesh) {
+          console.warn(
+            `[tactical] collector model at ${collectorModelUrl} had no mesh; using primitive fallback`,
+          );
+          return;
+        }
+        loadedCollectorGeometry?.dispose();
+        loadedCollectorGeometry = normalizeGeometry(
+          collectorMesh.geometry,
+          COLLECTOR_MODEL_TARGET_SIZE,
+        );
+        applyLoadedCollectorGeometry();
+        console.log(
+          `[tactical] loaded collector GLB model from ${collectorModelUrl}`,
+        );
+      } catch (error) {
+        console.warn(
+          `[tactical] failed to load collector GLB model from ${collectorModelUrl}; using primitive fallback`,
+          error,
+        );
+      }
+    };
+
     void loadFighterModel();
+    void loadCollectorModel();
 
     const removeUnitMesh = (unitId: string) => {
       const render = meshesRef.current.get(unitId);
@@ -627,6 +808,10 @@ export default function TacticalView({
         return;
       }
       scene.remove(render.mesh);
+      render.attachmentGroup.children.forEach((child) => {
+        (child as THREE.Mesh).geometry.dispose();
+        ((child as THREE.Mesh).material as THREE.Material).dispose();
+      });
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
       meshesRef.current.delete(unitId);
@@ -939,6 +1124,11 @@ export default function TacticalView({
             mesh.position.copy(target);
           }
           mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
+          const tint =
+            unit.owner === localSessionIdRef.current
+              ? UNIT_COLORS.friendly
+              : UNIT_COLORS.enemy;
+          updateUnitAttachments(unit, render, tint);
         });
       }
       const weaponCooldowns = weaponCooldownsRef.current;
@@ -1216,7 +1406,11 @@ export default function TacticalView({
       renderer.dispose();
       fighterGeometry.dispose();
       loadedFighterGeometry?.dispose();
+      loadedCollectorGeometry?.dispose();
       collectorGeometry.dispose();
+      fighterWeaponGeometry.dispose();
+      collectorTankGeometry.dispose();
+      collectorWeaponGeometry.dispose();
       baseGeometry.dispose();
       resourceGeometry.dispose();
       techGeometry.dispose();
@@ -1224,6 +1418,10 @@ export default function TacticalView({
       garageGeometry.dispose();
       turretGeometry.dispose();
       meshesRef.current.forEach((render) => {
+        render.attachmentGroup.children.forEach((child) => {
+          (child as THREE.Mesh).geometry.dispose();
+          ((child as THREE.Mesh).material as THREE.Material).dispose();
+        });
         render.mesh.geometry.dispose();
         (render.mesh.material as THREE.Material).dispose();
       });
@@ -1252,14 +1450,21 @@ export default function TacticalView({
     const selectedSet = new Set(selectedUnitIds);
     meshesRef.current.forEach((render, unitId) => {
       const material = render.mesh.material as THREE.MeshStandardMaterial;
+      let color: THREE.Color;
       if (selectedSet.has(unitId)) {
-        material.color = UNIT_COLORS.selected.clone();
-        return;
+        color = UNIT_COLORS.selected.clone();
+      } else {
+        color =
+          render.owner === localSessionId
+            ? UNIT_COLORS.friendly.clone()
+            : UNIT_COLORS.enemy.clone();
       }
-      material.color =
-        render.owner === localSessionId
-          ? UNIT_COLORS.friendly.clone()
-          : UNIT_COLORS.enemy.clone();
+      material.color = color;
+      render.attachmentGroup.children.forEach((child) => {
+        const childMaterial = (child as THREE.Mesh)
+          .material as THREE.MeshStandardMaterial;
+        childMaterial.color = color.clone();
+      });
     });
 
     if (!selectedId) {
