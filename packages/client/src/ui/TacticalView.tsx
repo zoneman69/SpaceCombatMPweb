@@ -442,6 +442,8 @@ export default function TacticalView({
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
+  const [shouldAutoOpenLabAfterPurchase, setShouldAutoOpenLabAfterPurchase] =
+    useState(false);
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -2088,6 +2090,14 @@ export default function TacticalView({
     !!selectedBase.researchWeaponTurret &&
     weaponTurretCount < WEAPON_TURRET_RING_COUNT &&
     selectedBase.resourceStock >= MODULE_WEAPON_TURRET_COST;
+
+  useEffect(() => {
+    if (!shouldAutoOpenLabAfterPurchase || !hasTechShop) {
+      return;
+    }
+    setIsLabModalOpen(true);
+    setShouldAutoOpenLabAfterPurchase(false);
+  }, [hasTechShop, shouldAutoOpenLabAfterPurchase]);
   const availableWeaponTypes = WEAPON_TYPES.filter((weaponType) => {
     if (!selectedBase) {
       return weaponType === "LASER";
@@ -2936,6 +2946,106 @@ export default function TacticalView({
                     }}
                   >
                     Build fighter
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  Stations and defenses ({weaponTurretCount}/
+                  {WEAPON_TURRET_RING_COUNT} turrets)
+                </p>
+                <div className="module-actions">
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseTechShop}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "TECH_SHOP",
+                      });
+                      setShouldAutoOpenLabAfterPurchase(true);
+                    }}
+                  >
+                    {hasTechShop ? "Lab installed" : `Build lab (${MODULE_TECH_SHOP_COST})`}
+                  </button>
+                  {hasTechShop ? (
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      onClick={() => setIsLabModalOpen(true)}
+                    >
+                      Open tech tree
+                    </button>
+                  ) : null}
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseRepairBay}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "REPAIR_BAY",
+                      });
+                    }}
+                  >
+                    {hasRepairBay
+                      ? "Repair bay installed"
+                      : `Build repair bay (${MODULE_REPAIR_BAY_COST})`}
+                  </button>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseGarage}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "GARAGE",
+                      });
+                    }}
+                  >
+                    {hasGarage ? "Garage installed" : `Build garage (${MODULE_GARAGE_COST})`}
+                  </button>
+                  <label className="mount-select">
+                    Turret weapon type
+                    <select
+                      value={effectiveModuleWeaponType}
+                      onChange={(event) =>
+                        setModuleWeaponType(
+                          event.target.value as (typeof WEAPON_TYPES)[number],
+                        )
+                      }
+                    >
+                      {availableWeaponTypes.map((type) => (
+                        <option key={type} value={type}>
+                          {type}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canPurchaseWeaponTurret}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:purchaseModule", {
+                        baseId: selectedBase.id,
+                        moduleType: "WEAPON_TURRET",
+                        weaponType: effectiveModuleWeaponType,
+                      });
+                    }}
+                  >
+                    Build turret ({MODULE_WEAPON_TURRET_COST})
                   </button>
                 </div>
               </div>
