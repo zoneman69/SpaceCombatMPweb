@@ -52,11 +52,20 @@ export class BaseSchema extends Schema {
   @type("boolean") researchWeaponTurret = false;
   @type("boolean") researchPlasma = false;
   @type("boolean") researchRail = false;
+  @type("boolean") researchMissile = false;
+  @type("boolean") researchFusionPlasma = false;
+  @type("boolean") researchGaussRail = false;
+  @type("boolean") researchSmartMissile = false;
+  @type("boolean") researchWeaponLevel1 = false;
+  @type("boolean") researchWeaponLevel2 = false;
+  @type("boolean") researchWeaponLevel3 = false;
   @type("boolean") researchShields = false;
   @type("boolean") researchHull = false;
   @type("boolean") researchSpeed = false;
   @type("boolean") researchRadar = false;
-  @type("boolean") researchWeaponSystems = false;
+  @type("boolean") researchTargeting = false;
+  @type("boolean") researchPowerCore = false;
+  @type("boolean") researchECM = false;
 }
 
 export class BaseModuleSchema extends Schema {

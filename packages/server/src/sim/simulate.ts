@@ -65,6 +65,26 @@ const BASE_WEAPON_STATS: Record<
     weaponCooldown: 2.1,
     weaponDamage: 12,
   },
+  MISSILE: {
+    weaponRange: 20,
+    weaponCooldown: 2,
+    weaponDamage: 14,
+  },
+  FUSION_PLASMA: {
+    weaponRange: 15,
+    weaponCooldown: 1.7,
+    weaponDamage: 18,
+  },
+  GAUSS_RAIL: {
+    weaponRange: 24,
+    weaponCooldown: 2,
+    weaponDamage: 14,
+  },
+  SMART_MISSILE: {
+    weaponRange: 22,
+    weaponCooldown: 1.8,
+    weaponDamage: 16,
+  },
 };
 
 export const simulate = ({ units, bases, modules, getStats, dt }: SimContext) => {

@@ -134,20 +134,83 @@ const LAB_RESEARCH_TREE = [
   {
     key: "PLASMA_WEAPONS",
     title: "Plasma Weapons",
-    description: "Unlock plasma loadouts in garage and turrets.",
+    description: "Tier 2 weapon unlock with higher damage and slight AoE.",
     cost: 130,
     durationSeconds: 16,
-    prerequisiteKeys: ["GARAGE"],
+    prerequisiteKeys: [],
     unlockedBy: "researchPlasma",
   },
   {
     key: "RAIL_WEAPONS",
     title: "Rail Weapons",
-    description: "Unlock rail loadouts in garage and turrets.",
-    cost: 180,
-    durationSeconds: 22,
-    prerequisiteKeys: ["PLASMA_WEAPONS"],
+    description: "Tier 2 weapon unlock with high single-target hitscan damage.",
+    cost: 150,
+    durationSeconds: 18,
+    prerequisiteKeys: [],
     unlockedBy: "researchRail",
+  },
+  {
+    key: "MISSILE_SYSTEMS",
+    title: "Missile Systems",
+    description: "Tier 2 weapon unlock with tracking projectiles.",
+    cost: 170,
+    durationSeconds: 20,
+    prerequisiteKeys: [],
+    unlockedBy: "researchMissile",
+  },
+  {
+    key: "FUSION_PLASMA",
+    title: "Fusion Plasma",
+    description: "Tier 3 plasma upgrade (larger AoE and burn-ready platform).",
+    cost: 210,
+    durationSeconds: 24,
+    prerequisiteKeys: ["PLASMA_WEAPONS"],
+    unlockedBy: "researchFusionPlasma",
+  },
+  {
+    key: "GAUSS_RAILGUN",
+    title: "Gauss Railgun",
+    description: "Tier 3 rail upgrade with stronger armor penetration profile.",
+    cost: 220,
+    durationSeconds: 24,
+    prerequisiteKeys: ["RAIL_WEAPONS"],
+    unlockedBy: "researchGaussRail",
+  },
+  {
+    key: "SMART_MISSILES",
+    title: "Smart Missiles",
+    description: "Tier 3 missile upgrade with better tracking and warheads.",
+    cost: 230,
+    durationSeconds: 24,
+    prerequisiteKeys: ["MISSILE_SYSTEMS"],
+    unlockedBy: "researchSmartMissile",
+  },
+  {
+    key: "WEAPON_LEVEL_1",
+    title: "Weapon Upgrade Lv1",
+    description: "+15% damage to all weapon families.",
+    cost: 120,
+    durationSeconds: 14,
+    prerequisiteKeys: [],
+    unlockedBy: "researchWeaponLevel1",
+  },
+  {
+    key: "WEAPON_LEVEL_2",
+    title: "Weapon Upgrade Lv2",
+    description: "+30% damage and +10% fire rate to all weapon families.",
+    cost: 180,
+    durationSeconds: 18,
+    prerequisiteKeys: ["WEAPON_LEVEL_1"],
+    unlockedBy: "researchWeaponLevel2",
+  },
+  {
+    key: "WEAPON_LEVEL_3",
+    title: "Weapon Upgrade Lv3",
+    description: "+50% damage, +20% fire rate, and special trait unlock hooks.",
+    cost: 240,
+    durationSeconds: 24,
+    prerequisiteKeys: ["WEAPON_LEVEL_2"],
+    unlockedBy: "researchWeaponLevel3",
   },
   {
     key: "SHIELDS",
@@ -186,13 +249,31 @@ const LAB_RESEARCH_TREE = [
     unlockedBy: "researchRadar",
   },
   {
-    key: "WEAPON_SYSTEMS",
-    title: "Weapon Systems",
-    description: "Enable weapon damage upgrades in the lab.",
-    cost: 170,
+    key: "TARGETING_SYSTEMS",
+    title: "Targeting Systems",
+    description: "Advanced tracking, predictive aiming, and target lock speed.",
+    cost: 175,
+    durationSeconds: 20,
+    prerequisiteKeys: ["RADAR"],
+    unlockedBy: "researchTargeting",
+  },
+  {
+    key: "POWER_CORE",
+    title: "Power Core",
+    description: "Improves regen/fire throughput and unlocks overdrive hooks.",
+    cost: 185,
     durationSeconds: 22,
-    prerequisiteKeys: [],
-    unlockedBy: "researchWeaponSystems",
+    prerequisiteKeys: ["SHIELDS", "SPEED"],
+    unlockedBy: "researchPowerCore",
+  },
+  {
+    key: "ECM_STEALTH",
+    title: "ECM / Stealth",
+    description: "Radar suppression and lock disruption for stealth gameplay.",
+    cost: 195,
+    durationSeconds: 22,
+    prerequisiteKeys: ["RADAR"],
+    unlockedBy: "researchECM",
   },
 ] as const;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
@@ -205,7 +286,15 @@ const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
 const FOG_VISIBILITY_EPSILON = 0.01;
-const WEAPON_TYPES = ["LASER", "PLASMA", "RAIL"] as const;
+const WEAPON_TYPES = [
+  "LASER",
+  "PLASMA",
+  "RAIL",
+  "MISSILE",
+  "FUSION_PLASMA",
+  "GAUSS_RAIL",
+  "SMART_MISSILE",
+] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/resource_collector.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
@@ -1979,7 +2068,19 @@ export default function TacticalView({
     if (weaponType === "PLASMA") {
       return selectedBase.researchPlasma;
     }
-    return selectedBase.researchRail;
+    if (weaponType === "RAIL") {
+      return selectedBase.researchRail;
+    }
+    if (weaponType === "MISSILE") {
+      return selectedBase.researchMissile;
+    }
+    if (weaponType === "FUSION_PLASMA") {
+      return selectedBase.researchFusionPlasma;
+    }
+    if (weaponType === "GAUSS_RAIL") {
+      return selectedBase.researchGaussRail;
+    }
+    return selectedBase.researchSmartMissile;
   });
   const availableTechUpgrades = Object.entries(TECH_UPGRADE_COSTS).filter(
     ([upgradeType]) => {
@@ -1996,7 +2097,7 @@ export default function TacticalView({
         case "RADAR":
           return selectedBase.researchRadar;
         case "WEAPON":
-          return selectedBase.researchWeaponSystems;
+          return selectedBase.researchWeaponLevel1;
         default:
           return false;
       }

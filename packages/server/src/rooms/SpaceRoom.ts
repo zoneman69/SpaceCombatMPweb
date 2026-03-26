@@ -38,6 +38,10 @@ const WEAPON_STATS: Record<string, Pick<ShipStats, "weaponRange" | "weaponDamage
     LASER: { weaponRange: 12, weaponDamage: 8 },
     PLASMA: { weaponRange: 9, weaponDamage: 12 },
     RAIL: { weaponRange: 16, weaponDamage: 6 },
+    MISSILE: { weaponRange: 14, weaponDamage: 10 },
+    FUSION_PLASMA: { weaponRange: 10, weaponDamage: 14 },
+    GAUSS_RAIL: { weaponRange: 18, weaponDamage: 8 },
+    SMART_MISSILE: { weaponRange: 15, weaponDamage: 12 },
   };
 
 const TICK_RATE = 20;
@@ -105,11 +109,20 @@ type BaseResearchKey =
   | "researchWeaponTurret"
   | "researchPlasma"
   | "researchRail"
+  | "researchMissile"
+  | "researchFusionPlasma"
+  | "researchGaussRail"
+  | "researchSmartMissile"
+  | "researchWeaponLevel1"
+  | "researchWeaponLevel2"
+  | "researchWeaponLevel3"
   | "researchShields"
   | "researchHull"
   | "researchSpeed"
   | "researchRadar"
-  | "researchWeaponSystems";
+  | "researchTargeting"
+  | "researchPowerCore"
+  | "researchECM";
 
 type ResearchDefinition = {
   cost: number;
@@ -141,13 +154,55 @@ const RESEARCH_TREE: Record<string, ResearchDefinition> = {
     cost: 130,
     durationSeconds: 16,
     unlock: "researchPlasma",
-    prerequisites: ["GARAGE"],
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
   },
   RAIL_WEAPONS: {
-    cost: 180,
-    durationSeconds: 22,
+    cost: 150,
+    durationSeconds: 18,
     unlock: "researchRail",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  MISSILE_SYSTEMS: {
+    cost: 170,
+    durationSeconds: 20,
+    unlock: "researchMissile",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  FUSION_PLASMA: {
+    cost: 210,
+    durationSeconds: 24,
+    unlock: "researchFusionPlasma",
     prerequisites: ["PLASMA_WEAPONS"],
+  },
+  GAUSS_RAILGUN: {
+    cost: 220,
+    durationSeconds: 24,
+    unlock: "researchGaussRail",
+    prerequisites: ["RAIL_WEAPONS"],
+  },
+  SMART_MISSILES: {
+    cost: 230,
+    durationSeconds: 24,
+    unlock: "researchSmartMissile",
+    prerequisites: ["MISSILE_SYSTEMS"],
+  },
+  WEAPON_LEVEL_1: {
+    cost: 120,
+    durationSeconds: 14,
+    unlock: "researchWeaponLevel1",
+    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+  },
+  WEAPON_LEVEL_2: {
+    cost: 180,
+    durationSeconds: 18,
+    unlock: "researchWeaponLevel2",
+    prerequisites: ["WEAPON_LEVEL_1"],
+  },
+  WEAPON_LEVEL_3: {
+    cost: 240,
+    durationSeconds: 24,
+    unlock: "researchWeaponLevel3",
+    prerequisites: ["WEAPON_LEVEL_2"],
   },
   SHIELDS: {
     cost: 130,
@@ -173,11 +228,23 @@ const RESEARCH_TREE: Record<string, ResearchDefinition> = {
     unlock: "researchRadar",
     prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
   },
-  WEAPON_SYSTEMS: {
-    cost: 170,
+  TARGETING_SYSTEMS: {
+    cost: 175,
+    durationSeconds: 20,
+    unlock: "researchTargeting",
+    prerequisites: ["RADAR"],
+  },
+  POWER_CORE: {
+    cost: 185,
     durationSeconds: 22,
-    unlock: "researchWeaponSystems",
-    prerequisites: [RESEARCH_PREREQ_BASE_MODULE],
+    unlock: "researchPowerCore",
+    prerequisites: ["SHIELDS", "SPEED"],
+  },
+  ECM_STEALTH: {
+    cost: 195,
+    durationSeconds: 22,
+    unlock: "researchECM",
+    prerequisites: ["RADAR"],
   },
 };
 const require = createRequire(import.meta.url);
@@ -851,11 +918,20 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.researchWeaponTurret = false;
     base.researchPlasma = false;
     base.researchRail = false;
+    base.researchMissile = false;
+    base.researchFusionPlasma = false;
+    base.researchGaussRail = false;
+    base.researchSmartMissile = false;
+    base.researchWeaponLevel1 = false;
+    base.researchWeaponLevel2 = false;
+    base.researchWeaponLevel3 = false;
     base.researchShields = false;
     base.researchHull = false;
     base.researchSpeed = false;
     base.researchRadar = false;
-    base.researchWeaponSystems = false;
+    base.researchTargeting = false;
+    base.researchPowerCore = false;
+    base.researchECM = false;
     this.state.bases.set(base.id, base);
     console.log("[lobby] base spawned", {
       sessionId,
@@ -1331,6 +1407,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         return base.researchPlasma;
       case "RAIL":
         return base.researchRail;
+      case "MISSILE":
+        return base.researchMissile;
+      case "FUSION_PLASMA":
+        return base.researchFusionPlasma;
+      case "GAUSS_RAIL":
+        return base.researchGaussRail;
+      case "SMART_MISSILE":
+        return base.researchSmartMissile;
       default:
         return false;
     }
@@ -1347,7 +1431,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       case "RADAR":
         return base.researchRadar;
       case "WEAPON":
-        return base.researchWeaponSystems;
+        return base.researchWeaponLevel1;
       default:
         return false;
     }
