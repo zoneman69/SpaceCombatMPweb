@@ -439,6 +439,9 @@ export default function TacticalView({
   const [garageWeaponType, setGarageWeaponType] =
     useState<(typeof WEAPON_TYPES)[number]>("LASER");
   const [isLabModalOpen, setIsLabModalOpen] = useState(false);
+  const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
+  const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
+  const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -1830,6 +1833,12 @@ export default function TacticalView({
       if (module && module.owner === localSessionId) {
         setSelectedModuleId(hitId);
         setSelectedBaseId(null);
+        setIsModuleModalOpen(true);
+        setIsBaseModalOpen(false);
+        setIsUnitModalOpen(false);
+        if (module.moduleType === "TECH_SHOP") {
+          setIsLabModalOpen(true);
+        }
         if (room && selectedUnitIds.length > 0) {
           room.send("module:visit", {
             moduleId: hitId,
@@ -1852,6 +1861,9 @@ export default function TacticalView({
         setSelectedModuleId(null);
         setSelection(null);
         setSelectedUnitIds([]);
+        setIsBaseModalOpen(true);
+        setIsModuleModalOpen(false);
+        setIsUnitModalOpen(false);
       } else if (room && selectedUnitIds.length > 0 && base) {
         const weaponUnitIds = selectedUnitIds.filter((unitId) => {
           const unit =
@@ -1862,6 +1874,8 @@ export default function TacticalView({
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
           setSelectedModuleId(null);
+          setIsBaseModalOpen(false);
+          setIsModuleModalOpen(false);
           room.send("command", {
             t: "ATTACK",
             unitIds: weaponUnitIds,
@@ -1873,6 +1887,9 @@ export default function TacticalView({
         setSelectedModuleId(null);
         setSelection(null);
         setSelectedUnitIds([]);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
+        setIsUnitModalOpen(false);
       }
       return;
     }
@@ -1890,6 +1907,9 @@ export default function TacticalView({
         setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
+        setIsUnitModalOpen(true);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
       } else if (room && selectedUnitIds.length > 0) {
         const weaponUnitIds = selectedUnitIds.filter((unitId) => {
           const unit =
@@ -1900,6 +1920,8 @@ export default function TacticalView({
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
           setSelectedModuleId(null);
+          setIsBaseModalOpen(false);
+          setIsModuleModalOpen(false);
           room.send("command", {
             t: "ATTACK",
             unitIds: weaponUnitIds,
@@ -1933,6 +1955,8 @@ export default function TacticalView({
       if (room && selectedUnitIds.length > 0 && resource) {
         setSelectedBaseId(null);
         setSelectedModuleId(null);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
         console.log("[tactical] harvest command", {
           unitIds: selectedUnitIds,
           resourceId: resource.id,
@@ -1955,6 +1979,8 @@ export default function TacticalView({
       if (selectedUnitIds.length > 0) {
         setSelectedBaseId(null);
         setSelectedModuleId(null);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
         room.send("command", {
           t: "MOVE",
           unitIds: selectedUnitIds,
@@ -1965,6 +1991,9 @@ export default function TacticalView({
         setSelection(null);
         setSelectedUnitIds([]);
         setSelectedModuleId(null);
+        setIsUnitModalOpen(false);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
       }
     }
   };
@@ -1972,6 +2001,7 @@ export default function TacticalView({
   const handleDeselectAllUnits = () => {
     setSelection(null);
     setSelectedUnitIds([]);
+    setIsUnitModalOpen(false);
   };
 
   const handleReturnCameraToBase = () => {
@@ -2812,6 +2842,143 @@ export default function TacticalView({
                     );
                   })}
                 </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {isUnitModalOpen && selectedUnit
+        ? createPortal(
+            <div className="entity-modal-backdrop" role="presentation">
+              <div
+                className="entity-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Unit details"
+              >
+                <div className="lab-modal-header">
+                  <p className="mount-title">Unit details</p>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsUnitModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  {selectedUnitType} · HP {Math.floor(selectedHp)}/
+                  {selectedUnitMaxHp} · Shields {Math.floor(selectedShields)}/
+                  {selectedUnitMaxShields}
+                </p>
+                <p className="hud-copy">
+                  Weapon {selectedUnitWeaponType} · Mounts{" "}
+                  {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Cargo{" "}
+                  {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity}
+                </p>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {isBaseModalOpen && selectedBase
+        ? createPortal(
+            <div className="entity-modal-backdrop" role="presentation">
+              <div
+                className="entity-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Base command"
+              >
+                <div className="lab-modal-header">
+                  <p className="mount-title">Base command</p>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsBaseModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  Resources {Math.floor(selectedBase.resourceStock)} · Modules{" "}
+                  {baseModules.length}
+                </p>
+                <div className="module-actions">
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canBuildCollector}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:build", {
+                        baseId: selectedBase.id,
+                        unitType: "RESOURCE_COLLECTOR",
+                      });
+                    }}
+                  >
+                    Build collector
+                  </button>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!canBuildFighter}
+                    onClick={() => {
+                      if (!room || !selectedBase) {
+                        return;
+                      }
+                      room.send("base:build", {
+                        baseId: selectedBase.id,
+                        unitType: "FIGHTER",
+                      });
+                    }}
+                  >
+                    Build fighter
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {isModuleModalOpen && selectedModule
+        ? createPortal(
+            <div className="entity-modal-backdrop" role="presentation">
+              <div
+                className="entity-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Module details"
+              >
+                <div className="lab-modal-header">
+                  <p className="mount-title">{selectedModule.moduleType}</p>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsModuleModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  {selectedModule.active ? "Active" : "Offline"} · Weapon{" "}
+                  {selectedModule.weaponType || "n/a"}
+                </p>
+                {selectedModule.moduleType === "TECH_SHOP" ? (
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    onClick={() => setIsLabModalOpen(true)}
+                  >
+                    Open lab tech tree
+                  </button>
+                ) : (
+                  <p className="hud-copy">
+                    Move a ship here to interact with this module.
+                  </p>
+                )}
               </div>
             </div>,
             document.body,
