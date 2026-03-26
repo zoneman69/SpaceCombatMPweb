@@ -336,7 +336,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       "module:techUpgrade",
       (
         client,
-        payload: { moduleId?: string; unitId?: string; upgradeType?: string },
+        payload: { baseId?: string; upgradeType?: string },
       ) => {
         this.handleTechUpgrade(client, payload);
       },
@@ -913,6 +913,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     base.resourceStock = BASE_STARTING_RESOURCES;
     base.activeResearchKey = "";
     base.activeResearchRemaining = 0;
+    base.collectorStorageBonus = 0;
     base.researchRepairBay = false;
     base.researchGarage = false;
     base.researchWeaponTurret = false;
@@ -1038,7 +1039,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.unitType = unitType;
     unit.weaponType = "LASER";
     unit.cargo = 0;
-    unit.cargoCapacity = config.cargoCapacity;
+    unit.cargoCapacity =
+      config.cargoCapacity +
+      (unitType === "RESOURCE_COLLECTOR" ? base.collectorStorageBonus : 0);
     unit.weaponMounts = config.weaponMounts;
     unit.techMounts = config.techMounts;
     unit.maxHp = 100;
@@ -1232,31 +1235,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private handleTechUpgrade(
     client: Colyseus.Client,
-    payload: { moduleId?: string; unitId?: string; upgradeType?: string },
+    payload: { baseId?: string; upgradeType?: string },
   ) {
-    const moduleId = payload?.moduleId;
-    const unitId = payload?.unitId;
+    const baseId = payload?.baseId;
     const upgradeType = payload?.upgradeType ?? "";
-    if (!moduleId || !unitId || !upgradeType) {
+    if (!baseId || !upgradeType) {
       return;
     }
-    const module = this.state.modules.get(moduleId);
-    const unit = this.state.units.get(unitId);
-    if (
-      !module ||
-      module.owner !== client.sessionId ||
-      module.moduleType !== "TECH_SHOP" ||
-      !unit ||
-      unit.owner !== client.sessionId
-    ) {
-      return;
-    }
-    const base = this.state.bases.get(module.baseId);
+    const base = this.state.bases.get(baseId);
     if (!base || base.owner !== client.sessionId) {
       return;
     }
-    const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
-    if (dist > MODULE_INTERACTION_RANGE) {
+    if (!this.findModuleByType(base.id, "GARAGE")) {
       return;
     }
     const cost = this.getTechUpgradeCost(upgradeType);
@@ -1267,27 +1257,40 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       return;
     }
     base.resourceStock -= cost;
-    switch (upgradeType) {
-      case "SHIELDS":
-        unit.maxShields += 15;
-        unit.shields = unit.maxShields;
-        break;
-      case "HULL":
-        unit.maxHp += 20;
-        unit.hp = Math.min(unit.maxHp, unit.hp + 20);
-        break;
-      case "SPEED":
-        unit.speedBonus += 1.5;
-        break;
-      case "RADAR":
-        unit.radarRangeBonus += 6;
-        break;
-      case "WEAPON":
-        unit.weaponDamageBonus += 2;
-        break;
-      default:
-        break;
+    if (upgradeType === "STORAGE") {
+      base.collectorStorageBonus += 25;
     }
+    this.state.units.forEach((unit) => {
+      if (unit.owner !== client.sessionId) {
+        return;
+      }
+      switch (upgradeType) {
+        case "SHIELDS":
+          unit.maxShields += 15;
+          unit.shields = unit.maxShields;
+          break;
+        case "HULL":
+          unit.maxHp += 20;
+          unit.hp = Math.min(unit.maxHp, unit.hp + 20);
+          break;
+        case "SPEED":
+          unit.speedBonus += 1.5;
+          break;
+        case "RADAR":
+          unit.radarRangeBonus += 6;
+          break;
+        case "WEAPON":
+          unit.weaponDamageBonus += 2;
+          break;
+        case "STORAGE":
+          if (unit.unitType === "RESOURCE_COLLECTOR") {
+            unit.cargoCapacity += 25;
+          }
+          break;
+        default:
+          break;
+      }
+    });
   }
 
   private handleStartResearch(
@@ -1432,6 +1435,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         return base.researchRadar;
       case "WEAPON":
         return base.researchWeaponLevel1;
+      case "STORAGE":
+        return true;
       default:
         return false;
     }
@@ -1464,6 +1469,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         return 75;
       case "WEAPON":
         return 120;
+      case "STORAGE":
+        return 100;
       default:
         return 0;
     }
