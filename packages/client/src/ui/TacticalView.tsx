@@ -296,7 +296,7 @@ const WEAPON_TYPES = [
   "SMART_MISSILE",
 ] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
-const COLLECTOR_MODEL_PATH = "assets/models/resource_collector.glb";
+const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
 const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
 const COLLECTOR_BASE_CAPACITY = 25;
