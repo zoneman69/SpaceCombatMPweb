@@ -3234,6 +3234,17 @@ export default function TacticalView({
                   >
                     Open lab tech tree
                   </button>
+                ) : selectedModule.moduleType === "GARAGE" ? (
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    onClick={() => {
+                      setSelectedBaseId(selectedModule.baseId);
+                      setIsGarageModalOpen(true);
+                    }}
+                  >
+                    Open garage upgrades
+                  </button>
                 ) : (
                   <p className="hud-copy">
                     Move a ship here to interact with this module.
