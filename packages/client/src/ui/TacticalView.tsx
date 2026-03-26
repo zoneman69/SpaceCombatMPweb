@@ -1833,9 +1833,9 @@ export default function TacticalView({
       const hitId = moduleHits[0].object.userData.id as string;
       const module = modulesRef.current?.get(hitId);
       if (module && module.owner === localSessionId) {
-        setSelectedModuleId(hitId);
-        setSelectedBaseId(null);
         const isTechShop = module.moduleType === "TECH_SHOP";
+        setSelectedModuleId(hitId);
+        setSelectedBaseId(isTechShop ? module.baseId : null);
         setIsModuleModalOpen(!isTechShop);
         setIsBaseModalOpen(false);
         setIsUnitModalOpen(false);
