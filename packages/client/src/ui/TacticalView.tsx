@@ -411,9 +411,8 @@ export default function TacticalView({
   });
   const [moduleWeaponType, setModuleWeaponType] =
     useState<(typeof WEAPON_TYPES)[number]>("LASER");
-  const [garageWeaponType, setGarageWeaponType] =
-    useState<(typeof WEAPON_TYPES)[number]>("LASER");
   const [isLabModalOpen, setIsLabModalOpen] = useState(false);
+  const [isGarageModalOpen, setIsGarageModalOpen] = useState(false);
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
@@ -2247,6 +2246,11 @@ export default function TacticalView({
     setIsLabModalOpen(true);
     setShouldAutoOpenLabAfterPurchase(false);
   }, [hasTechShop, shouldAutoOpenLabAfterPurchase]);
+  useEffect(() => {
+    if (!hasGarage) {
+      setIsGarageModalOpen(false);
+    }
+  }, [hasGarage]);
   const availableWeaponTypes = WEAPON_TYPES.filter((weaponType) => {
     if (!selectedBase) {
       return weaponType === "LASER";
@@ -2294,9 +2298,6 @@ export default function TacticalView({
   );
   const effectiveModuleWeaponType = availableWeaponTypes.includes(moduleWeaponType)
     ? moduleWeaponType
-    : "LASER";
-  const effectiveGarageWeaponType = availableWeaponTypes.includes(garageWeaponType)
-    ? garageWeaponType
     : "LASER";
   const selectedUnitType =
     selectedUnit && "unitType" in selectedUnit
@@ -2728,6 +2729,15 @@ export default function TacticalView({
                   >
                     {hasGarage ? "Garage installed" : "Purchase garage"}
                   </button>
+                  {hasGarage ? (
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      onClick={() => setIsGarageModalOpen(true)}
+                    >
+                      Open garage upgrades
+                    </button>
+                  ) : null}
                 </div>
               </div>
               <div className="mount-card">
@@ -2794,76 +2804,16 @@ export default function TacticalView({
                   {selectedModule.weaponType || "n/a"} ·{" "}
                   {selectedModule.active ? "Active" : "Offline"}
                 </p>
-                {selectedModule.moduleType === "GARAGE" && selectedUnit ? (
-                  <>
-                    <p className="hud-copy">
-                      {selectedUnitAtModule
-                        ? "Unit docked. Configure weapons, containers, and ship upgrades."
-                        : "Move a ship here to configure loadout upgrades."}
-                    </p>
-                    <label className="mount-select">
-                      Weapon type
-                      <select
-                        value={effectiveGarageWeaponType}
-                        onChange={(event) =>
-                          setGarageWeaponType(
-                            event.target.value as (typeof WEAPON_TYPES)[number],
-                          )
-                        }
-                      >
-                      {availableWeaponTypes.map((type) => (
-                          <option key={type} value={type}>
-                            {type}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <button
-                      className="hud-button mount-action"
-                      type="button"
-                      disabled={!selectedUnitAtModule || !room || !selectedBase}
-                      onClick={() => {
-                        if (!room || !selectedModule || !selectedUnit) {
-                          return;
-                        }
-                        room.send("module:garageWeapon", {
-                            moduleId: selectedModule.id,
-                            unitId: selectedUnit.id,
-                            weaponType: effectiveGarageWeaponType,
-                          });
-                        }}
-                    >
-                      Install {effectiveGarageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
-                    </button>
-                    {availableTechUpgrades.length > 0 ? (
-                      <div className="module-actions">
-                        {availableTechUpgrades.map(([key, cost]) => (
-                          <button
-                            key={key}
-                            className="hud-button mount-action"
-                            type="button"
-                            disabled={!selectedUnitAtModule || !room || !selectedBase}
-                            onClick={() => {
-                              if (!room || !selectedModule || !selectedUnit) {
-                                return;
-                              }
-                              room.send("module:techUpgrade", {
-                                moduleId: selectedModule.id,
-                                unitId: selectedUnit.id,
-                                upgradeType: key,
-                              });
-                            }}
-                          >
-                            Upgrade {key} ({cost})
-                          </button>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="hud-copy">
-                        No ship upgrades researched yet. Use the lab tech tree first.
-                      </p>
-                    )}
-                  </>
+                {selectedModule.moduleType === "GARAGE" ? (
+                  <p className="hud-copy">
+                    Garage upgrades now open in a dedicated modal and apply fleet-wide.
+                  </p>
+                ) : null}
+                {selectedModule.moduleType === "TECH_SHOP" ? (
+                  <p className="hud-copy">
+                    Research is managed in the lab tree. Ship loadout upgrades are now installed
+                    from the Garage module.
+                  </p>
                 ) : null}
                 {selectedModule.moduleType === "TECH_SHOP" ? (
                   <p className="hud-copy">
@@ -2998,6 +2948,73 @@ export default function TacticalView({
                     );
                   })}
                 </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {isGarageModalOpen && selectedBase
+        ? createPortal(
+            <div className="lab-modal-backdrop" role="presentation">
+              <div
+                className="lab-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Garage ship upgrades"
+              >
+                <div className="lab-modal-header">
+                  <div>
+                    <p className="mount-label">Loadout</p>
+                    <p className="mount-title">Garage Ship Upgrades</p>
+                  </div>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsGarageModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  Garage upgrades apply to all current ships you own.
+                </p>
+                <p className="hud-copy">
+                  Credits: {Math.floor(selectedBase.resourceStock)}
+                </p>
+                {availableTechUpgrades.length > 0 ? (
+                  <div className="lab-tech-grid">
+                    {availableTechUpgrades.map(([key, cost]) => {
+                      const canPurchase = selectedBase.resourceStock >= cost;
+                      return (
+                        <div className="lab-tech-card" key={key}>
+                          <p className="lab-tech-title">{key}</p>
+                          <p className="mount-meta">Fleet-wide ship upgrade</p>
+                          <p className="mount-meta">Cost {cost}</p>
+                          <button
+                            className="hud-button mount-action"
+                            type="button"
+                            disabled={!canPurchase || !room || !selectedBase}
+                            onClick={() => {
+                              if (!room || !selectedBase) {
+                                return;
+                              }
+                              room.send("module:techUpgrade", {
+                                baseId: selectedBase.id,
+                                upgradeType: key,
+                              });
+                            }}
+                          >
+                            Apply to fleet
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <p className="hud-copy">
+                    No ship upgrades researched yet. Use the lab tech tree first.
+                  </p>
+                )}
               </div>
             </div>,
             document.body,
