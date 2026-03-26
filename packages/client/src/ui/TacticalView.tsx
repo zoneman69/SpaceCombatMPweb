@@ -86,7 +86,7 @@ const CAMERA_KEY_PAN_SPEED = 12;
 const CAMERA_ZOOM_SPEED = 0.25;
 const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
-const CAMERA_RADIUS_MIN = 120;
+const CAMERA_RADIUS_MIN = 80;
 const CAMERA_RADIUS_MAX = 620;
 const MOVE_EPSILON = 0.25;
 const RESOURCE_COLLECTOR_COST = 100;
@@ -2365,12 +2365,11 @@ export default function TacticalView({
         onContextMenu={(event) => event.preventDefault()}
       >
         <div className="play-hud" role="status" aria-live="polite">
-          <div className="play-hud-card">
-            <p className="play-hud-label">Resources</p>
-            <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
-          </div>
           <div className="play-hud-card play-hud-card--wide">
-            <p className="play-hud-label">Selection</p>
+            <p className="play-hud-label">Combat HUD</p>
+            <p className="play-hud-copy play-hud-copy--resource">
+              Resources {Math.floor(localResourceTotal)}
+            </p>
             {selectedUnit ? (
               <p className="play-hud-copy">
                 {selectedUnitCount > 1 ? `${selectedUnitCount} selected · ` : ""}
@@ -2418,27 +2417,18 @@ export default function TacticalView({
           }}
         >
           <div
-            className="play-hud-card"
-            style={{
-              border: "1px solid rgba(96, 165, 250, 0.65)",
-              background: "rgba(7, 13, 28, 0.92)",
-              borderRadius: 12,
-              padding: "10px 12px",
-            }}
-          >
-            <p className="play-hud-label">Resources</p>
-            <p className="play-hud-value">{Math.floor(localResourceTotal)}</p>
-          </div>
-          <div
             className="play-hud-card play-hud-card--wide"
             style={{
               border: "1px solid rgba(96, 165, 250, 0.65)",
-              background: "rgba(7, 13, 28, 0.92)",
+              background: "rgba(7, 13, 28, 0.72)",
               borderRadius: 12,
               padding: "9px 12px 10px",
             }}
           >
-            <p className="play-hud-label">Selection</p>
+            <p className="play-hud-label">Combat HUD</p>
+            <p className="play-hud-copy play-hud-copy--resource">
+              Resources {Math.floor(localResourceTotal)}
+            </p>
             {selectedUnit ? (
               <p className="play-hud-copy">
                 {selectedUnitCount > 1 ? `${selectedUnitCount} selected · ` : ""}
