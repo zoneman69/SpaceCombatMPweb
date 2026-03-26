@@ -1833,12 +1833,13 @@ export default function TacticalView({
       const hitId = moduleHits[0].object.userData.id as string;
       const module = modulesRef.current?.get(hitId);
       if (module && module.owner === localSessionId) {
+        const isTechShop = module.moduleType === "TECH_SHOP";
         setSelectedModuleId(hitId);
-        setSelectedBaseId(null);
-        setIsModuleModalOpen(true);
+        setSelectedBaseId(isTechShop ? module.baseId : null);
+        setIsModuleModalOpen(!isTechShop);
         setIsBaseModalOpen(false);
         setIsUnitModalOpen(false);
-        if (module.moduleType === "TECH_SHOP") {
+        if (isTechShop) {
           setIsLabModalOpen(true);
         }
         if (room && selectedUnitIds.length > 0) {
