@@ -2815,6 +2815,12 @@ export default function TacticalView({
                     from the Garage module.
                   </p>
                 ) : null}
+                {selectedModule.moduleType === "TECH_SHOP" ? (
+                  <p className="hud-copy">
+                    Research is managed in the lab tree. Ship loadout upgrades are now installed
+                    from the Garage module.
+                  </p>
+                ) : null}
                 {selectedModule.moduleType === "REPAIR_BAY" ? (
                   <p className="hud-copy">
                     Dock ships here to auto-repair hull and shields.
