@@ -1835,10 +1835,11 @@ export default function TacticalView({
       if (module && module.owner === localSessionId) {
         setSelectedModuleId(hitId);
         setSelectedBaseId(null);
-        setIsModuleModalOpen(true);
+        const isTechShop = module.moduleType === "TECH_SHOP";
+        setIsModuleModalOpen(!isTechShop);
         setIsBaseModalOpen(false);
         setIsUnitModalOpen(false);
-        if (module.moduleType === "TECH_SHOP") {
+        if (isTechShop) {
           setIsLabModalOpen(true);
         }
         if (room && selectedUnitIds.length > 0) {
