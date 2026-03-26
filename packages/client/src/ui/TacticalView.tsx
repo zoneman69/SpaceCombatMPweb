@@ -303,33 +303,6 @@ const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
 
-const normalizeGeometry = (
-  sourceGeometry: THREE.BufferGeometry,
-  targetSize = FIGHTER_MODEL_TARGET_SIZE,
-) => {
-  const geometry = sourceGeometry.clone();
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox;
-  if (!box) {
-    return geometry;
-  }
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDimension = Math.max(size.x, size.y, size.z);
-  if (maxDimension > 0) {
-    const scale = targetSize / maxDimension;
-    geometry.scale(scale, scale, scale);
-  }
-  geometry.computeBoundingBox();
-  const centeredBox = geometry.boundingBox;
-  if (centeredBox) {
-    const center = new THREE.Vector3();
-    centeredBox.getCenter(center);
-    geometry.translate(-center.x, -center.y, -center.z);
-  }
-  return geometry;
-};
-
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
     ? import.meta.env.BASE_URL
@@ -637,18 +610,21 @@ export default function TacticalView({
       }
       return loadedCollectorGeometry ?? collectorGeometry;
     };
-    const fighterWeaponMountPoints = [
+    const defaultFighterWeaponMountPoints = [
       new THREE.Vector3(0.8, 0.2, -0.9),
       new THREE.Vector3(0.8, 0.2, 0.9),
       new THREE.Vector3(-0.1, 0.35, 0),
     ];
-    const collectorTankMountPoints = [
+    const defaultCollectorTankMountPoints = [
       new THREE.Vector3(-1.2, 0.9, -1.3),
       new THREE.Vector3(-1.2, 0.9, 1.3),
       new THREE.Vector3(-2.8, 0.9, -1.3),
       new THREE.Vector3(-2.8, 0.9, 1.3),
     ];
-    const collectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
+    const defaultCollectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
+    let fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+    let collectorTankMountPoints = [...defaultCollectorTankMountPoints];
+    let collectorWeaponMountPoint = defaultCollectorWeaponMountPoint.clone();
     const fighterWeaponGeometry = new THREE.BoxGeometry(0.85, 0.35, 0.35);
     const collectorTankGeometry = new THREE.CylinderGeometry(0.38, 0.38, 1.65, 12);
     collectorTankGeometry.rotateZ(Math.PI / 2);
@@ -757,6 +733,53 @@ export default function TacticalView({
       }
     };
 
+    const parseSocketOrder = (name: string, prefix: string) => {
+      const match = name.match(new RegExp(`^${prefix}_(\\d+)$`, "i"));
+      if (!match) {
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return Number.parseInt(match[1] ?? "0", 10);
+    };
+
+    const extractNormalizedModelData = (
+      gltf: GLTF,
+      mesh: THREE.Mesh,
+      targetSize: number,
+    ) => {
+      const geometry = mesh.geometry.clone();
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      const center = new THREE.Vector3();
+      let scale = 1;
+      if (box) {
+        box.getCenter(center);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        if (maxDimension > 0) {
+          scale = targetSize / maxDimension;
+          geometry.scale(scale, scale, scale);
+        }
+      }
+      const scaledCenter = center.multiplyScalar(scale);
+      geometry.translate(-scaledCenter.x, -scaledCenter.y, -scaledCenter.z);
+
+      gltf.scene.updateMatrixWorld(true);
+      const sockets: { name: string; position: THREE.Vector3 }[] = [];
+      gltf.scene.traverse((object) => {
+        if (!object.name.toLowerCase().startsWith("socket_")) {
+          return;
+        }
+        const worldPosition = new THREE.Vector3();
+        object.getWorldPosition(worldPosition);
+        const meshLocal = mesh.worldToLocal(worldPosition.clone());
+        const normalized = meshLocal.multiplyScalar(scale).sub(scaledCenter);
+        sockets.push({ name: object.name, position: normalized });
+      });
+
+      return { geometry, sockets };
+    };
+
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
         return;
@@ -803,6 +826,12 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedFighterGeometry.clone();
+        const color =
+          render.owner === localSessionIdRef.current
+            ? UNIT_COLORS.friendly
+            : UNIT_COLORS.enemy;
+        render.attachmentSignature = "";
+        updateUnitAttachments(unit, render, color);
       });
     };
 
@@ -821,6 +850,12 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedCollectorGeometry.clone();
+        const color =
+          render.owner === localSessionIdRef.current
+            ? UNIT_COLORS.friendly
+            : UNIT_COLORS.enemy;
+        render.attachmentSignature = "";
+        updateUnitAttachments(unit, render, color);
       });
     };
 
@@ -844,7 +879,28 @@ export default function TacticalView({
           return;
         }
         loadedFighterGeometry?.dispose();
-        loadedFighterGeometry = normalizeGeometry(fighterMesh.geometry);
+        const fighterModelData = extractNormalizedModelData(
+          gltf,
+          fighterMesh,
+          FIGHTER_MODEL_TARGET_SIZE,
+        );
+        loadedFighterGeometry = fighterModelData.geometry;
+        const fighterSockets = fighterModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_weapon") -
+              parseSocketOrder(b.name, "socket_weapon"),
+          )
+          .map((socket) => socket.position);
+        if (fighterSockets.length > 0) {
+          fighterWeaponMountPoints = fighterSockets;
+          console.log(
+            `[tactical] using ${fighterSockets.length} fighter weapon sockets from model`,
+          );
+        } else {
+          fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+        }
         applyLoadedFighterGeometry();
         console.log(
           `[tactical] loaded fighter GLB model from ${fighterModelUrl}`,
@@ -877,11 +933,42 @@ export default function TacticalView({
           return;
         }
         loadedCollectorGeometry?.dispose();
-        loadedCollectorGeometry = normalizeGeometry(
-          collectorMesh.geometry,
+        const collectorModelData = extractNormalizedModelData(
+          gltf,
+          collectorMesh,
           COLLECTOR_MODEL_TARGET_SIZE,
         );
+        loadedCollectorGeometry = collectorModelData.geometry;
+        const collectorWeaponSockets = collectorModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_weapon") -
+              parseSocketOrder(b.name, "socket_weapon"),
+          );
+        collectorWeaponMountPoint =
+          collectorWeaponSockets[0]?.position.clone() ??
+          defaultCollectorWeaponMountPoint.clone();
+        const collectorTankSockets = collectorModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_tank_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_tank") -
+              parseSocketOrder(b.name, "socket_tank"),
+          )
+          .map((socket) => socket.position);
+        collectorTankMountPoints =
+          collectorTankSockets.length > 0
+            ? collectorTankSockets
+            : [...defaultCollectorTankMountPoints];
         applyLoadedCollectorGeometry();
+        if (collectorTankSockets.length > 0 || collectorWeaponSockets.length > 0) {
+          console.log(
+            `[tactical] using ${collectorTankMountPoints.length} collector tank socket(s) and ${
+              collectorWeaponSockets.length > 0 ? 1 : 0
+            } weapon socket from model`,
+          );
+        }
         console.log(
           `[tactical] loaded collector GLB model from ${collectorModelUrl}`,
         );
