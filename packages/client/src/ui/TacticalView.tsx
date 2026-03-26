@@ -102,6 +102,7 @@ const TECH_UPGRADE_COSTS = {
   SPEED: 110,
   RADAR: 75,
   WEAPON: 120,
+  STORAGE: 100,
 };
 const LAB_RESEARCH_TREE = [
   {
@@ -2291,6 +2292,8 @@ export default function TacticalView({
           return selectedBase.researchRadar;
         case "WEAPON":
           return selectedBase.researchWeaponLevel1;
+        case "STORAGE":
+          return true;
         default:
           return false;
       }
@@ -2807,12 +2810,6 @@ export default function TacticalView({
                 {selectedModule.moduleType === "GARAGE" ? (
                   <p className="hud-copy">
                     Garage upgrades now open in a dedicated modal and apply fleet-wide.
-                  </p>
-                ) : null}
-                {selectedModule.moduleType === "TECH_SHOP" ? (
-                  <p className="hud-copy">
-                    Research is managed in the lab tree. Ship loadout upgrades are now installed
-                    from the Garage module.
                   </p>
                 ) : null}
                 {selectedModule.moduleType === "TECH_SHOP" ? (
