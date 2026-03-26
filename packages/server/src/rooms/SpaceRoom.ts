@@ -1245,7 +1245,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (
       !module ||
       module.owner !== client.sessionId ||
-      module.moduleType !== "TECH_SHOP" ||
+      module.moduleType !== "GARAGE" ||
       !unit ||
       unit.owner !== client.sessionId
     ) {

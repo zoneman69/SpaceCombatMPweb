@@ -297,38 +297,13 @@ const WEAPON_TYPES = [
 ] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
+const STORAGE_CONTAINER_MODEL_PATH = "assets/models/storage_container.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 6;
 const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
+const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
-
-const normalizeGeometry = (
-  sourceGeometry: THREE.BufferGeometry,
-  targetSize = FIGHTER_MODEL_TARGET_SIZE,
-) => {
-  const geometry = sourceGeometry.clone();
-  geometry.computeBoundingBox();
-  const box = geometry.boundingBox;
-  if (!box) {
-    return geometry;
-  }
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDimension = Math.max(size.x, size.y, size.z);
-  if (maxDimension > 0) {
-    const scale = targetSize / maxDimension;
-    geometry.scale(scale, scale, scale);
-  }
-  geometry.computeBoundingBox();
-  const centeredBox = geometry.boundingBox;
-  if (centeredBox) {
-    const center = new THREE.Vector3();
-    centeredBox.getCenter(center);
-    geometry.translate(-center.x, -center.y, -center.z);
-  }
-  return geometry;
-};
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -618,8 +593,10 @@ export default function TacticalView({
     fighterGeometry.translate(0.8, 0, 0);
     const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
     const collectorModelUrl = resolveRuntimeAssetUrl(COLLECTOR_MODEL_PATH);
+    const storageContainerModelUrl = resolveRuntimeAssetUrl(STORAGE_CONTAINER_MODEL_PATH);
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
     let loadedCollectorGeometry: THREE.BufferGeometry | null = null;
+    let loadedStorageContainerGeometry: THREE.BufferGeometry | null = null;
     let isDisposed = false;
 
     const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
@@ -637,18 +614,21 @@ export default function TacticalView({
       }
       return loadedCollectorGeometry ?? collectorGeometry;
     };
-    const fighterWeaponMountPoints = [
+    const defaultFighterWeaponMountPoints = [
       new THREE.Vector3(0.8, 0.2, -0.9),
       new THREE.Vector3(0.8, 0.2, 0.9),
       new THREE.Vector3(-0.1, 0.35, 0),
     ];
-    const collectorTankMountPoints = [
+    const defaultCollectorTankMountPoints = [
       new THREE.Vector3(-1.2, 0.9, -1.3),
       new THREE.Vector3(-1.2, 0.9, 1.3),
       new THREE.Vector3(-2.8, 0.9, -1.3),
       new THREE.Vector3(-2.8, 0.9, 1.3),
     ];
-    const collectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
+    const defaultCollectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
+    let fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+    let collectorTankMountPoints = [...defaultCollectorTankMountPoints];
+    let collectorWeaponMountPoint = defaultCollectorWeaponMountPoint.clone();
     const fighterWeaponGeometry = new THREE.BoxGeometry(0.85, 0.35, 0.35);
     const collectorTankGeometry = new THREE.CylinderGeometry(0.38, 0.38, 1.65, 12);
     collectorTankGeometry.rotateZ(Math.PI / 2);
@@ -685,7 +665,7 @@ export default function TacticalView({
       if (unit.unitType === "RESOURCE_COLLECTOR") {
         for (let index = 0; index < tankCount; index += 1) {
           const tank = new THREE.Mesh(
-            collectorTankGeometry.clone(),
+            (loadedStorageContainerGeometry ?? collectorTankGeometry).clone(),
             new THREE.MeshStandardMaterial({
               color,
               emissive: new THREE.Color("#0b1b3a"),
@@ -757,6 +737,53 @@ export default function TacticalView({
       }
     };
 
+    const parseSocketOrder = (name: string, prefix: string) => {
+      const match = name.match(new RegExp(`^${prefix}_(\\d+)$`, "i"));
+      if (!match) {
+        return Number.MAX_SAFE_INTEGER;
+      }
+      return Number.parseInt(match[1] ?? "0", 10);
+    };
+
+    const extractNormalizedModelData = (
+      gltf: GLTF,
+      mesh: THREE.Mesh,
+      targetSize: number,
+    ) => {
+      const geometry = mesh.geometry.clone();
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      const center = new THREE.Vector3();
+      let scale = 1;
+      if (box) {
+        box.getCenter(center);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        if (maxDimension > 0) {
+          scale = targetSize / maxDimension;
+          geometry.scale(scale, scale, scale);
+        }
+      }
+      const scaledCenter = center.multiplyScalar(scale);
+      geometry.translate(-scaledCenter.x, -scaledCenter.y, -scaledCenter.z);
+
+      gltf.scene.updateMatrixWorld(true);
+      const sockets: { name: string; position: THREE.Vector3 }[] = [];
+      gltf.scene.traverse((object) => {
+        if (!object.name.toLowerCase().startsWith("socket_")) {
+          return;
+        }
+        const worldPosition = new THREE.Vector3();
+        object.getWorldPosition(worldPosition);
+        const meshLocal = mesh.worldToLocal(worldPosition.clone());
+        const normalized = meshLocal.multiplyScalar(scale).sub(scaledCenter);
+        sockets.push({ name: object.name, position: normalized });
+      });
+
+      return { geometry, sockets };
+    };
+
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
         return;
@@ -803,6 +830,12 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedFighterGeometry.clone();
+        const color =
+          render.owner === localSessionIdRef.current
+            ? UNIT_COLORS.friendly
+            : UNIT_COLORS.enemy;
+        render.attachmentSignature = "";
+        updateUnitAttachments(unit, render, color);
       });
     };
 
@@ -821,6 +854,12 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedCollectorGeometry.clone();
+        const color =
+          render.owner === localSessionIdRef.current
+            ? UNIT_COLORS.friendly
+            : UNIT_COLORS.enemy;
+        render.attachmentSignature = "";
+        updateUnitAttachments(unit, render, color);
       });
     };
 
@@ -844,7 +883,28 @@ export default function TacticalView({
           return;
         }
         loadedFighterGeometry?.dispose();
-        loadedFighterGeometry = normalizeGeometry(fighterMesh.geometry);
+        const fighterModelData = extractNormalizedModelData(
+          gltf,
+          fighterMesh,
+          FIGHTER_MODEL_TARGET_SIZE,
+        );
+        loadedFighterGeometry = fighterModelData.geometry;
+        const fighterSockets = fighterModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_weapon") -
+              parseSocketOrder(b.name, "socket_weapon"),
+          )
+          .map((socket) => socket.position);
+        if (fighterSockets.length > 0) {
+          fighterWeaponMountPoints = fighterSockets;
+          console.log(
+            `[tactical] using ${fighterSockets.length} fighter weapon sockets from model`,
+          );
+        } else {
+          fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+        }
         applyLoadedFighterGeometry();
         console.log(
           `[tactical] loaded fighter GLB model from ${fighterModelUrl}`,
@@ -877,11 +937,42 @@ export default function TacticalView({
           return;
         }
         loadedCollectorGeometry?.dispose();
-        loadedCollectorGeometry = normalizeGeometry(
-          collectorMesh.geometry,
+        const collectorModelData = extractNormalizedModelData(
+          gltf,
+          collectorMesh,
           COLLECTOR_MODEL_TARGET_SIZE,
         );
+        loadedCollectorGeometry = collectorModelData.geometry;
+        const collectorWeaponSockets = collectorModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_weapon") -
+              parseSocketOrder(b.name, "socket_weapon"),
+          );
+        collectorWeaponMountPoint =
+          collectorWeaponSockets[0]?.position.clone() ??
+          defaultCollectorWeaponMountPoint.clone();
+        const collectorTankSockets = collectorModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_tank_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_tank") -
+              parseSocketOrder(b.name, "socket_tank"),
+          )
+          .map((socket) => socket.position);
+        collectorTankMountPoints =
+          collectorTankSockets.length > 0
+            ? collectorTankSockets
+            : [...defaultCollectorTankMountPoints];
         applyLoadedCollectorGeometry();
+        if (collectorTankSockets.length > 0 || collectorWeaponSockets.length > 0) {
+          console.log(
+            `[tactical] using ${collectorTankMountPoints.length} collector tank socket(s) and ${
+              collectorWeaponSockets.length > 0 ? 1 : 0
+            } weapon socket from model`,
+          );
+        }
         console.log(
           `[tactical] loaded collector GLB model from ${collectorModelUrl}`,
         );
@@ -893,8 +984,64 @@ export default function TacticalView({
       }
     };
 
+    const loadStorageContainerModel = async () => {
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await loader.loadAsync(storageContainerModelUrl);
+        if (isDisposed) {
+          return;
+        }
+        let containerMesh: THREE.Mesh | null = null;
+        gltf.scene.traverse((object) => {
+          if (!containerMesh && object instanceof THREE.Mesh) {
+            containerMesh = object;
+          }
+        });
+        if (!containerMesh) {
+          console.warn(
+            `[tactical] storage container model at ${storageContainerModelUrl} had no mesh; using primitive fallback`,
+          );
+          return;
+        }
+        loadedStorageContainerGeometry?.dispose();
+        const containerModelData = extractNormalizedModelData(
+          gltf,
+          containerMesh,
+          STORAGE_CONTAINER_MODEL_TARGET_SIZE,
+        );
+        loadedStorageContainerGeometry = containerModelData.geometry;
+        const units = unitsRef.current;
+        if (units) {
+          units.forEach((unit) => {
+            if (unit.unitType !== "RESOURCE_COLLECTOR") {
+              return;
+            }
+            const render = meshesRef.current.get(unit.id);
+            if (!render) {
+              return;
+            }
+            const color =
+              render.owner === localSessionIdRef.current
+                ? UNIT_COLORS.friendly
+                : UNIT_COLORS.enemy;
+            render.attachmentSignature = "";
+            updateUnitAttachments(unit, render, color);
+          });
+        }
+        console.log(
+          `[tactical] loaded storage container GLB model from ${storageContainerModelUrl}`,
+        );
+      } catch (error) {
+        console.warn(
+          `[tactical] failed to load storage container GLB model from ${storageContainerModelUrl}; using primitive fallback`,
+          error,
+        );
+      }
+    };
+
     void loadFighterModel();
     void loadCollectorModel();
+    void loadStorageContainerModel();
 
     const removeUnitMesh = (unitId: string) => {
       const render = meshesRef.current.get(unitId);
@@ -1501,6 +1648,7 @@ export default function TacticalView({
       fighterGeometry.dispose();
       loadedFighterGeometry?.dispose();
       loadedCollectorGeometry?.dispose();
+      loadedStorageContainerGeometry?.dispose();
       collectorGeometry.dispose();
       fighterWeaponGeometry.dispose();
       collectorTankGeometry.dispose();
@@ -2562,7 +2710,7 @@ export default function TacticalView({
                 </div>
                 <div className="mount-card-body">
                   <p className="mount-meta">
-                    Cost: {MODULE_GARAGE_COST} · Install new weapon types.
+                    Cost: {MODULE_GARAGE_COST} · Install weapon mounts, containers, and ship upgrades.
                   </p>
                   <button
                     className="hud-button mount-action"
@@ -2650,8 +2798,8 @@ export default function TacticalView({
                   <>
                     <p className="hud-copy">
                       {selectedUnitAtModule
-                        ? "Unit docked. Choose a weapon loadout."
-                        : "Move a ship here to install new weapons."}
+                        ? "Unit docked. Configure weapons, containers, and ship upgrades."
+                        : "Move a ship here to configure loadout upgrades."}
                     </p>
                     <label className="mount-select">
                       Weapon type
@@ -2684,18 +2832,9 @@ export default function TacticalView({
                             weaponType: effectiveGarageWeaponType,
                           });
                         }}
-                      >
+                    >
                       Install {effectiveGarageWeaponType} (cost {UNIT_WEAPON_MOUNT_COST})
                     </button>
-                  </>
-                ) : null}
-                {selectedModule.moduleType === "TECH_SHOP" && selectedUnit ? (
-                  <>
-                    <p className="hud-copy">
-                      {selectedUnitAtModule
-                        ? "Upgrade ship stats for resources (researched upgrades only)."
-                        : "Move a ship here to access researched upgrades."}
-                    </p>
                     {availableTechUpgrades.length > 0 ? (
                       <div className="module-actions">
                         {availableTechUpgrades.map(([key, cost]) => (
@@ -2721,10 +2860,16 @@ export default function TacticalView({
                       </div>
                     ) : (
                       <p className="hud-copy">
-                        No upgrades researched yet. Use the lab tech tree first.
+                        No ship upgrades researched yet. Use the lab tech tree first.
                       </p>
                     )}
                   </>
+                ) : null}
+                {selectedModule.moduleType === "TECH_SHOP" ? (
+                  <p className="hud-copy">
+                    Research is managed in the lab tree. Ship loadout upgrades are now installed
+                    from the Garage module.
+                  </p>
                 ) : null}
                 {selectedModule.moduleType === "REPAIR_BAY" ? (
                   <p className="hud-copy">
