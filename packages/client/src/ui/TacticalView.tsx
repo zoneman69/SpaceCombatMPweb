@@ -305,6 +305,8 @@ const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
+const COLLECTOR_MAX_STORAGE_BONUS =
+  COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -664,6 +666,13 @@ export default function TacticalView({
 
       if (unit.unitType === "RESOURCE_COLLECTOR") {
         for (let index = 0; index < tankCount; index += 1) {
+          const mountPoint =
+            collectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[defaultCollectorTankMountPoints.length - 1];
+          if (!mountPoint) {
+            continue;
+          }
           const tank = new THREE.Mesh(
             (loadedStorageContainerGeometry ?? collectorTankGeometry).clone(),
             new THREE.MeshStandardMaterial({
@@ -673,7 +682,7 @@ export default function TacticalView({
               roughness: 0.45,
             }),
           );
-          tank.position.copy(collectorTankMountPoints[index]);
+          tank.position.copy(mountPoint);
           render.attachmentGroup.add(tank);
         }
         if (weaponMounts > 0) {
@@ -2293,7 +2302,7 @@ export default function TacticalView({
         case "WEAPON":
           return selectedBase.researchWeaponLevel1;
         case "STORAGE":
-          return true;
+          return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
           return false;
       }
