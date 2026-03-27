@@ -65,6 +65,7 @@ const MAP_RESOURCE_RADIUS = 320;
 const COLLECTOR_STORAGE_UPGRADE_STEP = 25;
 const COLLECTOR_STORAGE_MAX_UPGRADES = 4;
 const COLLECTOR_STORAGE_MAX_BONUS = COLLECTOR_STORAGE_UPGRADE_STEP * COLLECTOR_STORAGE_MAX_UPGRADES;
+const SHIP_TECH_UPGRADE_MAX_LEVEL = 3;
 const UNIT_CONFIG = {
     RESOURCE_COLLECTOR: {
         cost: RESOURCE_COLLECTOR_COST,
@@ -787,6 +788,11 @@ export class SpaceRoom extends Colyseus.Room {
         base.activeResearchKey = "";
         base.activeResearchRemaining = 0;
         base.collectorStorageBonus = 0;
+        base.shieldUpgradeLevel = 0;
+        base.hullUpgradeLevel = 0;
+        base.speedUpgradeLevel = 0;
+        base.radarUpgradeLevel = 0;
+        base.weaponUpgradeLevel = 0;
         base.researchRepairBay = false;
         base.researchGarage = false;
         base.researchWeaponTurret = false;
@@ -912,6 +918,7 @@ export class SpaceRoom extends Colyseus.Room {
         unit.speedBonus = 0;
         unit.radarRangeBonus = 0;
         unit.weaponDamageBonus = 0;
+        this.applyCurrentShipTechUpgrades(unit, base);
         unit.x = base.x + 6;
         unit.z = base.z + 6;
         this.state.units.set(unit.id, unit);
@@ -1105,10 +1112,14 @@ export class SpaceRoom extends Colyseus.Room {
             base.collectorStorageBonus >= COLLECTOR_STORAGE_MAX_BONUS) {
             return;
         }
+        if (this.getShipTechUpgradeLevel(base, upgradeType) >= SHIP_TECH_UPGRADE_MAX_LEVEL) {
+            return;
+        }
         base.resourceStock -= cost;
         if (upgradeType === "STORAGE") {
             base.collectorStorageBonus = Math.min(COLLECTOR_STORAGE_MAX_BONUS, base.collectorStorageBonus + COLLECTOR_STORAGE_UPGRADE_STEP);
         }
+        this.incrementShipTechUpgradeLevel(base, upgradeType);
         this.state.units.forEach((unit) => {
             if (unit.owner !== client.sessionId) {
                 return;
@@ -1305,6 +1316,52 @@ export class SpaceRoom extends Colyseus.Room {
             default:
                 return 0;
         }
+    }
+    getShipTechUpgradeLevel(base, upgradeType) {
+        switch (upgradeType) {
+            case "SHIELDS":
+                return base.shieldUpgradeLevel;
+            case "HULL":
+                return base.hullUpgradeLevel;
+            case "SPEED":
+                return base.speedUpgradeLevel;
+            case "RADAR":
+                return base.radarUpgradeLevel;
+            case "WEAPON":
+                return base.weaponUpgradeLevel;
+            default:
+                return 0;
+        }
+    }
+    incrementShipTechUpgradeLevel(base, upgradeType) {
+        switch (upgradeType) {
+            case "SHIELDS":
+                base.shieldUpgradeLevel = Math.min(SHIP_TECH_UPGRADE_MAX_LEVEL, base.shieldUpgradeLevel + 1);
+                break;
+            case "HULL":
+                base.hullUpgradeLevel = Math.min(SHIP_TECH_UPGRADE_MAX_LEVEL, base.hullUpgradeLevel + 1);
+                break;
+            case "SPEED":
+                base.speedUpgradeLevel = Math.min(SHIP_TECH_UPGRADE_MAX_LEVEL, base.speedUpgradeLevel + 1);
+                break;
+            case "RADAR":
+                base.radarUpgradeLevel = Math.min(SHIP_TECH_UPGRADE_MAX_LEVEL, base.radarUpgradeLevel + 1);
+                break;
+            case "WEAPON":
+                base.weaponUpgradeLevel = Math.min(SHIP_TECH_UPGRADE_MAX_LEVEL, base.weaponUpgradeLevel + 1);
+                break;
+            default:
+                break;
+        }
+    }
+    applyCurrentShipTechUpgrades(unit, base) {
+        unit.maxShields += base.shieldUpgradeLevel * 15;
+        unit.shields = unit.maxShields;
+        unit.maxHp += base.hullUpgradeLevel * 20;
+        unit.hp = unit.maxHp;
+        unit.speedBonus += base.speedUpgradeLevel * 1.5;
+        unit.radarRangeBonus += base.radarUpgradeLevel * 6;
+        unit.weaponDamageBonus += base.weaponUpgradeLevel * 2;
     }
     findModuleByType(baseId, moduleType) {
         for (const module of this.state.modules.values()) {
