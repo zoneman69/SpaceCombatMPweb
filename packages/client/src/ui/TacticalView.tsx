@@ -26,6 +26,7 @@ type UnitRender = {
   owner: string;
   attachmentGroup: THREE.Group;
   attachmentSignature: string;
+  usesImportedMaterial: boolean;
 };
 
 type MapRender = {
@@ -602,6 +603,14 @@ export default function TacticalView({
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
     let loadedCollectorGeometry: THREE.BufferGeometry | null = null;
     let loadedStorageContainerGeometry: THREE.BufferGeometry | null = null;
+    let loadedFighterMaterial:
+      | THREE.Material
+      | THREE.Material[]
+      | null = null;
+    let loadedCollectorMaterial:
+      | THREE.Material
+      | THREE.Material[]
+      | null = null;
     let isDisposed = false;
 
     const collectorBody = new THREE.BoxGeometry(4.6, 2.6, 2.8);
@@ -830,17 +839,79 @@ export default function TacticalView({
       return { geometry, sockets };
     };
 
+    const cloneMaterialSet = (
+      material: THREE.Material | THREE.Material[],
+    ): THREE.Material | THREE.Material[] =>
+      Array.isArray(material)
+        ? material.map((item) => item.clone())
+        : material.clone();
+
+    const disposeMaterialSet = (
+      material: THREE.Material | THREE.Material[] | null | undefined,
+    ) => {
+      if (!material) {
+        return;
+      }
+      if (Array.isArray(material)) {
+        material.forEach((item) => item.dispose());
+        return;
+      }
+      material.dispose();
+    };
+
+    const inspectModelMeshMaterials = (gltf: GLTF, modelLabel: string) => {
+      let meshCount = 0;
+      let meshWithMaterialCount = 0;
+      let meshWithTextureCount = 0;
+      gltf.scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) {
+          return;
+        }
+        meshCount += 1;
+        const materials = Array.isArray(object.material)
+          ? object.material
+          : [object.material];
+        const hasMaterial = materials.every((material) => material instanceof THREE.Material);
+        if (hasMaterial) {
+          meshWithMaterialCount += 1;
+        }
+        const hasTexture = materials.some((material) => {
+          if (!(material instanceof THREE.MeshStandardMaterial)) {
+            return false;
+          }
+          return !!material.map;
+        });
+        if (hasTexture) {
+          meshWithTextureCount += 1;
+        }
+      });
+      console.log(`[tactical] ${modelLabel} mesh/material inspection`, {
+        meshCount,
+        meshWithMaterialCount,
+        meshWithTextureCount,
+      });
+    };
+
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
         return;
       }
-      const material = new THREE.MeshStandardMaterial({
-        color:
-          unit.owner === localSessionIdRef.current
-            ? UNIT_COLORS.friendly.clone()
-            : UNIT_COLORS.enemy.clone(),
-        emissive: new THREE.Color("#0b1b3a"),
-      });
+      const importedMaterial =
+        "unitType" in unit && unit.unitType === "FIGHTER"
+          ? loadedFighterMaterial
+          : "unitType" in unit && unit.unitType === "RESOURCE_COLLECTOR"
+            ? loadedCollectorMaterial
+            : null;
+      const usesImportedMaterial = !!importedMaterial;
+      const material = importedMaterial
+        ? cloneMaterialSet(importedMaterial)
+        : new THREE.MeshStandardMaterial({
+            color:
+              unit.owner === localSessionIdRef.current
+                ? UNIT_COLORS.friendly.clone()
+                : UNIT_COLORS.enemy.clone(),
+            emissive: new THREE.Color("#0b1b3a"),
+          });
       const mesh = new THREE.Mesh(getUnitGeometry(unit).clone(), material);
       const attachmentGroup = new THREE.Group();
       mesh.add(attachmentGroup);
@@ -856,6 +927,7 @@ export default function TacticalView({
         owner: unit.owner,
         attachmentGroup,
         attachmentSignature: "",
+        usesImportedMaterial,
       };
       updateUnitAttachments(unit, render, color);
       meshesRef.current.set(unit.id, render);
@@ -876,6 +948,11 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedFighterGeometry.clone();
+        if (loadedFighterMaterial) {
+          disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
+          render.mesh.material = cloneMaterialSet(loadedFighterMaterial);
+          render.usesImportedMaterial = true;
+        }
         const color =
           render.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly
@@ -900,6 +977,11 @@ export default function TacticalView({
         }
         render.mesh.geometry.dispose();
         render.mesh.geometry = loadedCollectorGeometry.clone();
+        if (loadedCollectorMaterial) {
+          disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
+          render.mesh.material = cloneMaterialSet(loadedCollectorMaterial);
+          render.usesImportedMaterial = true;
+        }
         const color =
           render.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly
@@ -916,9 +998,14 @@ export default function TacticalView({
         if (isDisposed) {
           return;
         }
+        inspectModelMeshMaterials(gltf, "fighter");
         let fighterMesh: THREE.Mesh | null = null;
         gltf.scene.traverse((object) => {
-          if (!fighterMesh && object instanceof THREE.Mesh) {
+          if (
+            !fighterMesh &&
+            object instanceof THREE.Mesh &&
+            object.material
+          ) {
             fighterMesh = object;
           }
         });
@@ -935,6 +1022,10 @@ export default function TacticalView({
           FIGHTER_MODEL_TARGET_SIZE,
         );
         loadedFighterGeometry = fighterModelData.geometry;
+        disposeMaterialSet(loadedFighterMaterial);
+        loadedFighterMaterial = cloneMaterialSet(
+          fighterMesh.material as THREE.Material | THREE.Material[],
+        );
         const fighterSockets = fighterModelData.sockets
           .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
           .sort(
@@ -970,9 +1061,14 @@ export default function TacticalView({
         if (isDisposed) {
           return;
         }
+        inspectModelMeshMaterials(gltf, "collector");
         let collectorMesh: THREE.Mesh | null = null;
         gltf.scene.traverse((object) => {
-          if (!collectorMesh && object instanceof THREE.Mesh) {
+          if (
+            !collectorMesh &&
+            object instanceof THREE.Mesh &&
+            object.material
+          ) {
             collectorMesh = object;
           }
         });
@@ -989,6 +1085,10 @@ export default function TacticalView({
           COLLECTOR_MODEL_TARGET_SIZE,
         );
         loadedCollectorGeometry = collectorModelData.geometry;
+        disposeMaterialSet(loadedCollectorMaterial);
+        loadedCollectorMaterial = cloneMaterialSet(
+          collectorMesh.material as THREE.Material | THREE.Material[],
+        );
         const collectorWeaponSockets = collectorModelData.sockets
           .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
           .sort(
@@ -1727,6 +1827,8 @@ export default function TacticalView({
       loadedFighterGeometry?.dispose();
       loadedCollectorGeometry?.dispose();
       loadedStorageContainerGeometry?.dispose();
+      disposeMaterialSet(loadedFighterMaterial);
+      disposeMaterialSet(loadedCollectorMaterial);
       collectorGeometry.dispose();
       fighterWeaponGeometry.dispose();
       collectorTankGeometry.dispose();
@@ -1743,7 +1845,7 @@ export default function TacticalView({
           ((child as THREE.Mesh).material as THREE.Material).dispose();
         });
         render.mesh.geometry.dispose();
-        (render.mesh.material as THREE.Material).dispose();
+        disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
       });
       meshesRef.current.clear();
       baseMeshesRef.current.forEach((render) => {
@@ -1769,7 +1871,6 @@ export default function TacticalView({
     const selectedId = selection?.id;
     const selectedSet = new Set(selectedUnitIds);
     meshesRef.current.forEach((render, unitId) => {
-      const material = render.mesh.material as THREE.MeshStandardMaterial;
       let color: THREE.Color;
       if (selectedSet.has(unitId)) {
         color = UNIT_COLORS.selected.clone();
@@ -1779,7 +1880,10 @@ export default function TacticalView({
             ? UNIT_COLORS.friendly.clone()
             : UNIT_COLORS.enemy.clone();
       }
-      material.color = color;
+      if (!render.usesImportedMaterial) {
+        const material = render.mesh.material as THREE.MeshStandardMaterial;
+        material.color = color;
+      }
       render.attachmentGroup.children.forEach((child) => {
         const childMaterial = (child as THREE.Mesh)
           .material as THREE.MeshStandardMaterial;
