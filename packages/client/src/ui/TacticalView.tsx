@@ -307,6 +307,7 @@ const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
+const DEBUG_COLLECTOR_ATTACHMENTS = true;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -344,6 +345,7 @@ export default function TacticalView({
   const moduleMeshesRef = useRef<Map<string, ModuleRender>>(new Map());
   const resourceMeshesRef = useRef<Map<string, MapRender>>(new Map());
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
+  const collectorAttachmentDebugRef = useRef<Map<string, string>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
@@ -651,6 +653,28 @@ export default function TacticalView({
       const signature = `${unit.unitType}:${tankCount}:${weaponMounts}`;
       if (signature === render.attachmentSignature) {
         return;
+      }
+      if (DEBUG_COLLECTOR_ATTACHMENTS && unit.unitType === "RESOURCE_COLLECTOR") {
+        const previousSignature = collectorAttachmentDebugRef.current.get(unit.id);
+        if (previousSignature !== signature) {
+          console.log("[tactical] collector attachment recompute", {
+            unitId: unit.id,
+            signature,
+            previousSignature: previousSignature ?? "none",
+            cargo: unit.cargo,
+            cargoCapacity: unit.cargoCapacity,
+            tankCount,
+            weaponMounts,
+            hasStorageContainerGeometry: !!loadedStorageContainerGeometry,
+            activeTankMountPoints: collectorTankMountPoints.map((point, index) => ({
+              index,
+              x: Number(point.x.toFixed(2)),
+              y: Number(point.y.toFixed(2)),
+              z: Number(point.z.toFixed(2)),
+            })),
+          });
+          collectorAttachmentDebugRef.current.set(unit.id, signature);
+        }
       }
 
       while (render.attachmentGroup.children.length > 0) {
@@ -1037,6 +1061,29 @@ export default function TacticalView({
           STORAGE_CONTAINER_MODEL_TARGET_SIZE,
         );
         loadedStorageContainerGeometry = containerModelData.geometry;
+        if (DEBUG_COLLECTOR_ATTACHMENTS) {
+          loadedStorageContainerGeometry.computeBoundingBox();
+          const box = loadedStorageContainerGeometry.boundingBox;
+          console.log("[tactical] storage container geometry ready", {
+            source: storageContainerModelUrl,
+            vertexCount:
+              loadedStorageContainerGeometry.getAttribute("position")?.count ?? 0,
+            bounds: box
+              ? {
+                  min: {
+                    x: Number(box.min.x.toFixed(2)),
+                    y: Number(box.min.y.toFixed(2)),
+                    z: Number(box.min.z.toFixed(2)),
+                  },
+                  max: {
+                    x: Number(box.max.x.toFixed(2)),
+                    y: Number(box.max.y.toFixed(2)),
+                    z: Number(box.max.z.toFixed(2)),
+                  },
+                }
+              : null,
+          });
+        }
         const units = unitsRef.current;
         if (units) {
           units.forEach((unit) => {
@@ -1083,6 +1130,7 @@ export default function TacticalView({
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
       meshesRef.current.delete(unitId);
+      collectorAttachmentDebugRef.current.delete(unitId);
     };
 
     const ensureBaseMesh = (base: BaseSchema) => {
