@@ -27,6 +27,8 @@ type UnitRender = {
   attachmentGroup: THREE.Group;
   attachmentSignature: string;
   usesImportedMaterial: boolean;
+  selectionOutline: THREE.LineSegments | null;
+  selectionOutlineGeometrySource: string | null;
 };
 
 type MapRender = {
@@ -928,6 +930,8 @@ export default function TacticalView({
         attachmentGroup,
         attachmentSignature: "",
         usesImportedMaterial,
+        selectionOutline: null,
+        selectionOutlineGeometrySource: null,
       };
       updateUnitAttachments(unit, render, color);
       meshesRef.current.set(unit.id, render);
@@ -952,6 +956,13 @@ export default function TacticalView({
           disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
           render.mesh.material = cloneMaterialSet(loadedFighterMaterial);
           render.usesImportedMaterial = true;
+        }
+        if (render.selectionOutline) {
+          render.mesh.remove(render.selectionOutline);
+          render.selectionOutline.geometry.dispose();
+          (render.selectionOutline.material as THREE.Material).dispose();
+          render.selectionOutline = null;
+          render.selectionOutlineGeometrySource = null;
         }
         const color =
           render.owner === localSessionIdRef.current
@@ -981,6 +992,13 @@ export default function TacticalView({
           disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
           render.mesh.material = cloneMaterialSet(loadedCollectorMaterial);
           render.usesImportedMaterial = true;
+        }
+        if (render.selectionOutline) {
+          render.mesh.remove(render.selectionOutline);
+          render.selectionOutline.geometry.dispose();
+          (render.selectionOutline.material as THREE.Material).dispose();
+          render.selectionOutline = null;
+          render.selectionOutlineGeometrySource = null;
         }
         const color =
           render.owner === localSessionIdRef.current
@@ -1846,6 +1864,12 @@ export default function TacticalView({
         });
         render.mesh.geometry.dispose();
         disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
+        if (render.selectionOutline) {
+          render.mesh.remove(render.selectionOutline);
+          render.selectionOutline.geometry.dispose();
+          (render.selectionOutline.material as THREE.Material).dispose();
+          render.selectionOutline = null;
+        }
       });
       meshesRef.current.clear();
       baseMeshesRef.current.forEach((render) => {
@@ -1870,23 +1894,7 @@ export default function TacticalView({
   useEffect(() => {
     const selectedId = selection?.id;
     const selectedSet = new Set(selectedUnitIds);
-    const applyImportedSelectionTint = (
-      material: THREE.Material | THREE.Material[],
-      tintColor: THREE.Color,
-      isSelected: boolean,
-    ) => {
-      const materials = Array.isArray(material) ? material : [material];
-      materials.forEach((item) => {
-        if (
-          item instanceof THREE.MeshStandardMaterial ||
-          item instanceof THREE.MeshPhongMaterial
-        ) {
-          const emissiveStrength = isSelected ? 0.35 : 0.16;
-          item.emissive.copy(tintColor).multiplyScalar(emissiveStrength);
-          item.emissiveIntensity = 1;
-        }
-      });
-    };
+    const selectedOutlineColor = UNIT_COLORS.selected.clone();
 
     meshesRef.current.forEach((render, unitId) => {
       let color: THREE.Color;
@@ -1902,8 +1910,41 @@ export default function TacticalView({
       if (!render.usesImportedMaterial) {
         const material = render.mesh.material as THREE.MeshStandardMaterial;
         material.color = color;
-      } else {
-        applyImportedSelectionTint(render.mesh.material, color, isSelected);
+      }
+      const sourceGeometryId = render.mesh.geometry.uuid;
+      if (isSelected) {
+        const needsNewOutline =
+          !render.selectionOutline ||
+          render.selectionOutlineGeometrySource !== sourceGeometryId;
+        if (needsNewOutline) {
+          if (render.selectionOutline) {
+            render.mesh.remove(render.selectionOutline);
+            render.selectionOutline.geometry.dispose();
+            (render.selectionOutline.material as THREE.Material).dispose();
+          }
+          const geometry = new THREE.EdgesGeometry(render.mesh.geometry);
+          const material = new THREE.LineBasicMaterial({
+            color: selectedOutlineColor,
+            transparent: true,
+            opacity: 0.95,
+          });
+          const outline = new THREE.LineSegments(geometry, material);
+          outline.scale.setScalar(1.035);
+          outline.renderOrder = 10;
+          render.mesh.add(outline);
+          render.selectionOutline = outline;
+          render.selectionOutlineGeometrySource = sourceGeometryId;
+        } else {
+          const outlineMaterial =
+            render.selectionOutline.material as THREE.LineBasicMaterial;
+          outlineMaterial.color = selectedOutlineColor.clone();
+        }
+      } else if (render.selectionOutline) {
+        render.mesh.remove(render.selectionOutline);
+        render.selectionOutline.geometry.dispose();
+        (render.selectionOutline.material as THREE.Material).dispose();
+        render.selectionOutline = null;
+        render.selectionOutlineGeometrySource = null;
       }
       render.attachmentGroup.children.forEach((child) => {
         const childMaterial = (child as THREE.Mesh)
