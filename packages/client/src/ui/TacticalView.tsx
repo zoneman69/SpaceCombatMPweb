@@ -305,6 +305,8 @@ const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
+const COLLECTOR_MAX_STORAGE_BONUS =
+  COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -664,6 +666,13 @@ export default function TacticalView({
 
       if (unit.unitType === "RESOURCE_COLLECTOR") {
         for (let index = 0; index < tankCount; index += 1) {
+          const mountPoint =
+            collectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[defaultCollectorTankMountPoints.length - 1];
+          if (!mountPoint) {
+            continue;
+          }
           const tank = new THREE.Mesh(
             (loadedStorageContainerGeometry ?? collectorTankGeometry).clone(),
             new THREE.MeshStandardMaterial({
@@ -673,7 +682,7 @@ export default function TacticalView({
               roughness: 0.45,
             }),
           );
-          tank.position.copy(collectorTankMountPoints[index]);
+          tank.position.copy(mountPoint);
           render.attachmentGroup.add(tank);
         }
         if (weaponMounts > 0) {
@@ -743,6 +752,18 @@ export default function TacticalView({
         return Number.MAX_SAFE_INTEGER;
       }
       return Number.parseInt(match[1] ?? "0", 10);
+    };
+
+    const isSocketPositionUsable = (position: THREE.Vector3) => {
+      if (
+        !Number.isFinite(position.x) ||
+        !Number.isFinite(position.y) ||
+        !Number.isFinite(position.z)
+      ) {
+        return false;
+      }
+      // Guard against malformed socket transforms that place attachments far away.
+      return position.lengthSq() <= 15 ** 2;
     };
 
     const extractNormalizedModelData = (
@@ -950,8 +971,11 @@ export default function TacticalView({
               parseSocketOrder(a.name, "socket_weapon") -
               parseSocketOrder(b.name, "socket_weapon"),
           );
+        const usableCollectorWeaponSocket = collectorWeaponSockets.find((socket) =>
+          isSocketPositionUsable(socket.position),
+        );
         collectorWeaponMountPoint =
-          collectorWeaponSockets[0]?.position.clone() ??
+          usableCollectorWeaponSocket?.position.clone() ??
           defaultCollectorWeaponMountPoint.clone();
         const collectorTankSockets = collectorModelData.sockets
           .filter((socket) => socket.name.toLowerCase().startsWith("socket_tank_"))
@@ -961,15 +985,18 @@ export default function TacticalView({
               parseSocketOrder(b.name, "socket_tank"),
           )
           .map((socket) => socket.position);
-        collectorTankMountPoints =
-          collectorTankSockets.length > 0
-            ? collectorTankSockets
-            : [...defaultCollectorTankMountPoints];
+        const usableCollectorTankSockets = collectorTankSockets
+          .filter((socket) => isSocketPositionUsable(socket))
+          .slice(0, defaultCollectorTankMountPoints.length);
+        collectorTankMountPoints = [...defaultCollectorTankMountPoints];
+        usableCollectorTankSockets.forEach((socket, index) => {
+          collectorTankMountPoints[index] = socket;
+        });
         applyLoadedCollectorGeometry();
-        if (collectorTankSockets.length > 0 || collectorWeaponSockets.length > 0) {
+        if (usableCollectorTankSockets.length > 0 || usableCollectorWeaponSocket) {
           console.log(
-            `[tactical] using ${collectorTankMountPoints.length} collector tank socket(s) and ${
-              collectorWeaponSockets.length > 0 ? 1 : 0
+            `[tactical] using ${usableCollectorTankSockets.length} collector tank socket(s) and ${
+              usableCollectorWeaponSocket ? 1 : 0
             } weapon socket from model`,
           );
         }
@@ -2293,7 +2320,7 @@ export default function TacticalView({
         case "WEAPON":
           return selectedBase.researchWeaponLevel1;
         case "STORAGE":
-          return true;
+          return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
           return false;
       }
