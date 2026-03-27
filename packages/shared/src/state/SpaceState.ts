@@ -48,6 +48,11 @@ export class BaseSchema extends Schema {
   @type("string") activeResearchKey = "";
   @type("number") activeResearchRemaining = 0;
   @type("number") collectorStorageBonus = 0;
+  @type("number") shieldUpgradeLevel = 0;
+  @type("number") hullUpgradeLevel = 0;
+  @type("number") speedUpgradeLevel = 0;
+  @type("number") radarUpgradeLevel = 0;
+  @type("number") weaponUpgradeLevel = 0;
   @type("boolean") researchRepairBay = false;
   @type("boolean") researchGarage = false;
   @type("boolean") researchWeaponTurret = false;
