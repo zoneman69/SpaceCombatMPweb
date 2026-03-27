@@ -308,7 +308,7 @@ const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 const DEBUG_COLLECTOR_ATTACHMENTS = true;
-const USE_COLLECTOR_MODEL_TANK_SOCKETS = false;
+const USE_COLLECTOR_MODEL_TANK_SOCKETS = true;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
