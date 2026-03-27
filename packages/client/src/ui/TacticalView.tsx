@@ -1870,9 +1870,28 @@ export default function TacticalView({
   useEffect(() => {
     const selectedId = selection?.id;
     const selectedSet = new Set(selectedUnitIds);
+    const applyImportedSelectionTint = (
+      material: THREE.Material | THREE.Material[],
+      tintColor: THREE.Color,
+      isSelected: boolean,
+    ) => {
+      const materials = Array.isArray(material) ? material : [material];
+      materials.forEach((item) => {
+        if (
+          item instanceof THREE.MeshStandardMaterial ||
+          item instanceof THREE.MeshPhongMaterial
+        ) {
+          const emissiveStrength = isSelected ? 0.35 : 0.16;
+          item.emissive.copy(tintColor).multiplyScalar(emissiveStrength);
+          item.emissiveIntensity = 1;
+        }
+      });
+    };
+
     meshesRef.current.forEach((render, unitId) => {
       let color: THREE.Color;
-      if (selectedSet.has(unitId)) {
+      const isSelected = selectedSet.has(unitId);
+      if (isSelected) {
         color = UNIT_COLORS.selected.clone();
       } else {
         color =
@@ -1883,6 +1902,8 @@ export default function TacticalView({
       if (!render.usesImportedMaterial) {
         const material = render.mesh.material as THREE.MeshStandardMaterial;
         material.color = color;
+      } else {
+        applyImportedSelectionTint(render.mesh.material, color, isSelected);
       }
       render.attachmentGroup.children.forEach((child) => {
         const childMaterial = (child as THREE.Mesh)
