@@ -308,6 +308,7 @@ const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 const DEBUG_COLLECTOR_ATTACHMENTS = true;
+const USE_COLLECTOR_MODEL_TANK_SOCKETS = false;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -1013,15 +1014,17 @@ export default function TacticalView({
           .filter((socket) => isSocketPositionUsable(socket))
           .slice(0, defaultCollectorTankMountPoints.length);
         collectorTankMountPoints = [...defaultCollectorTankMountPoints];
-        usableCollectorTankSockets.forEach((socket, index) => {
-          collectorTankMountPoints[index] = socket;
-        });
+        if (USE_COLLECTOR_MODEL_TANK_SOCKETS) {
+          usableCollectorTankSockets.forEach((socket, index) => {
+            collectorTankMountPoints[index] = socket;
+          });
+        }
         applyLoadedCollectorGeometry();
         if (usableCollectorTankSockets.length > 0 || usableCollectorWeaponSocket) {
           console.log(
             `[tactical] using ${usableCollectorTankSockets.length} collector tank socket(s) and ${
               usableCollectorWeaponSocket ? 1 : 0
-            } weapon socket from model`,
+            } weapon socket from model (tank sockets applied: ${USE_COLLECTOR_MODEL_TANK_SOCKETS})`,
           );
         }
         console.log(
