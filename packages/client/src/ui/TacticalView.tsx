@@ -665,8 +665,9 @@ export default function TacticalView({
     const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
-    thrusterGeometry.rotateX(Math.PI / 2);
-    thrusterGeometry.translate(0, 0, -0.75);
+    // Thruster flame should point backward on the ship's local X axis.
+    thrusterGeometry.rotateZ(-Math.PI / 2);
+    thrusterGeometry.translate(-0.75, 0, 0);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
