@@ -305,6 +305,10 @@ const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
+const COLLECTOR_MAX_STORAGE_BONUS =
+  COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
+const DEBUG_COLLECTOR_ATTACHMENTS = true;
+const USE_COLLECTOR_MODEL_TANK_SOCKETS = false;
 
 const resolveRuntimeAssetUrl = (assetPath: string) => {
   const normalizedBase = import.meta.env.BASE_URL.endsWith("/")
@@ -342,6 +346,7 @@ export default function TacticalView({
   const moduleMeshesRef = useRef<Map<string, ModuleRender>>(new Map());
   const resourceMeshesRef = useRef<Map<string, MapRender>>(new Map());
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
+  const collectorAttachmentDebugRef = useRef<Map<string, string>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
@@ -650,6 +655,28 @@ export default function TacticalView({
       if (signature === render.attachmentSignature) {
         return;
       }
+      if (DEBUG_COLLECTOR_ATTACHMENTS && unit.unitType === "RESOURCE_COLLECTOR") {
+        const previousSignature = collectorAttachmentDebugRef.current.get(unit.id);
+        if (previousSignature !== signature) {
+          console.log("[tactical] collector attachment recompute", {
+            unitId: unit.id,
+            signature,
+            previousSignature: previousSignature ?? "none",
+            cargo: unit.cargo,
+            cargoCapacity: unit.cargoCapacity,
+            tankCount,
+            weaponMounts,
+            hasStorageContainerGeometry: !!loadedStorageContainerGeometry,
+            activeTankMountPoints: collectorTankMountPoints.map((point, index) => ({
+              index,
+              x: Number(point.x.toFixed(2)),
+              y: Number(point.y.toFixed(2)),
+              z: Number(point.z.toFixed(2)),
+            })),
+          });
+          collectorAttachmentDebugRef.current.set(unit.id, signature);
+        }
+      }
 
       while (render.attachmentGroup.children.length > 0) {
         const child = render.attachmentGroup.children[0];
@@ -664,6 +691,13 @@ export default function TacticalView({
 
       if (unit.unitType === "RESOURCE_COLLECTOR") {
         for (let index = 0; index < tankCount; index += 1) {
+          const mountPoint =
+            collectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[index] ??
+            defaultCollectorTankMountPoints[defaultCollectorTankMountPoints.length - 1];
+          if (!mountPoint) {
+            continue;
+          }
           const tank = new THREE.Mesh(
             (loadedStorageContainerGeometry ?? collectorTankGeometry).clone(),
             new THREE.MeshStandardMaterial({
@@ -673,7 +707,7 @@ export default function TacticalView({
               roughness: 0.45,
             }),
           );
-          tank.position.copy(collectorTankMountPoints[index]);
+          tank.position.copy(mountPoint);
           render.attachmentGroup.add(tank);
         }
         if (weaponMounts > 0) {
@@ -743,6 +777,18 @@ export default function TacticalView({
         return Number.MAX_SAFE_INTEGER;
       }
       return Number.parseInt(match[1] ?? "0", 10);
+    };
+
+    const isSocketPositionUsable = (position: THREE.Vector3) => {
+      if (
+        !Number.isFinite(position.x) ||
+        !Number.isFinite(position.y) ||
+        !Number.isFinite(position.z)
+      ) {
+        return false;
+      }
+      // Guard against malformed socket transforms that place attachments far away.
+      return position.lengthSq() <= 15 ** 2;
     };
 
     const extractNormalizedModelData = (
@@ -950,8 +996,11 @@ export default function TacticalView({
               parseSocketOrder(a.name, "socket_weapon") -
               parseSocketOrder(b.name, "socket_weapon"),
           );
+        const usableCollectorWeaponSocket = collectorWeaponSockets.find((socket) =>
+          isSocketPositionUsable(socket.position),
+        );
         collectorWeaponMountPoint =
-          collectorWeaponSockets[0]?.position.clone() ??
+          usableCollectorWeaponSocket?.position.clone() ??
           defaultCollectorWeaponMountPoint.clone();
         const collectorTankSockets = collectorModelData.sockets
           .filter((socket) => socket.name.toLowerCase().startsWith("socket_tank_"))
@@ -961,16 +1010,21 @@ export default function TacticalView({
               parseSocketOrder(b.name, "socket_tank"),
           )
           .map((socket) => socket.position);
-        collectorTankMountPoints =
-          collectorTankSockets.length > 0
-            ? collectorTankSockets
-            : [...defaultCollectorTankMountPoints];
+        const usableCollectorTankSockets = collectorTankSockets
+          .filter((socket) => isSocketPositionUsable(socket))
+          .slice(0, defaultCollectorTankMountPoints.length);
+        collectorTankMountPoints = [...defaultCollectorTankMountPoints];
+        if (USE_COLLECTOR_MODEL_TANK_SOCKETS) {
+          usableCollectorTankSockets.forEach((socket, index) => {
+            collectorTankMountPoints[index] = socket;
+          });
+        }
         applyLoadedCollectorGeometry();
-        if (collectorTankSockets.length > 0 || collectorWeaponSockets.length > 0) {
+        if (usableCollectorTankSockets.length > 0 || usableCollectorWeaponSocket) {
           console.log(
-            `[tactical] using ${collectorTankMountPoints.length} collector tank socket(s) and ${
-              collectorWeaponSockets.length > 0 ? 1 : 0
-            } weapon socket from model`,
+            `[tactical] using ${usableCollectorTankSockets.length} collector tank socket(s) and ${
+              usableCollectorWeaponSocket ? 1 : 0
+            } weapon socket from model (tank sockets applied: ${USE_COLLECTOR_MODEL_TANK_SOCKETS})`,
           );
         }
         console.log(
@@ -1010,6 +1064,29 @@ export default function TacticalView({
           STORAGE_CONTAINER_MODEL_TARGET_SIZE,
         );
         loadedStorageContainerGeometry = containerModelData.geometry;
+        if (DEBUG_COLLECTOR_ATTACHMENTS) {
+          loadedStorageContainerGeometry.computeBoundingBox();
+          const box = loadedStorageContainerGeometry.boundingBox;
+          console.log("[tactical] storage container geometry ready", {
+            source: storageContainerModelUrl,
+            vertexCount:
+              loadedStorageContainerGeometry.getAttribute("position")?.count ?? 0,
+            bounds: box
+              ? {
+                  min: {
+                    x: Number(box.min.x.toFixed(2)),
+                    y: Number(box.min.y.toFixed(2)),
+                    z: Number(box.min.z.toFixed(2)),
+                  },
+                  max: {
+                    x: Number(box.max.x.toFixed(2)),
+                    y: Number(box.max.y.toFixed(2)),
+                    z: Number(box.max.z.toFixed(2)),
+                  },
+                }
+              : null,
+          });
+        }
         const units = unitsRef.current;
         if (units) {
           units.forEach((unit) => {
@@ -1056,6 +1133,7 @@ export default function TacticalView({
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
       meshesRef.current.delete(unitId);
+      collectorAttachmentDebugRef.current.delete(unitId);
     };
 
     const ensureBaseMesh = (base: BaseSchema) => {
@@ -2293,7 +2371,7 @@ export default function TacticalView({
         case "WEAPON":
           return selectedBase.researchWeaponLevel1;
         case "STORAGE":
-          return true;
+          return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
           return false;
       }
