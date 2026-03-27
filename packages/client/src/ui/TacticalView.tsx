@@ -665,9 +665,8 @@ export default function TacticalView({
     const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
-    // Thruster flame should point backward on the ship's local X axis.
-    thrusterGeometry.rotateZ(-Math.PI / 2);
-    thrusterGeometry.translate(-0.75, 0, 0);
+    thrusterGeometry.rotateX(Math.PI / 2);
+    thrusterGeometry.translate(0, 0, -0.75);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
@@ -688,6 +687,8 @@ export default function TacticalView({
           }),
         );
         thruster.position.copy(offset);
+        // Apply the 90-degree correction on the thruster effect only.
+        thruster.rotation.y = -Math.PI / 2;
         thruster.visible = false;
         return thruster;
       });
