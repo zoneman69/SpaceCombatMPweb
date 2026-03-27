@@ -76,6 +76,10 @@ const RESOURCE_NODE_MAX_AMOUNT = 420;
 const BASE_SPAWN_RADIUS = 260;
 const MAP_RESOURCE_SPACING = 80;
 const MAP_RESOURCE_RADIUS = 320;
+const COLLECTOR_STORAGE_UPGRADE_STEP = 25;
+const COLLECTOR_STORAGE_MAX_UPGRADES = 4;
+const COLLECTOR_STORAGE_MAX_BONUS =
+  COLLECTOR_STORAGE_UPGRADE_STEP * COLLECTOR_STORAGE_MAX_UPGRADES;
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -1041,7 +1045,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.cargo = 0;
     unit.cargoCapacity =
       config.cargoCapacity +
-      (unitType === "RESOURCE_COLLECTOR" ? base.collectorStorageBonus : 0);
+      (unitType === "RESOURCE_COLLECTOR"
+        ? Math.min(base.collectorStorageBonus, COLLECTOR_STORAGE_MAX_BONUS)
+        : 0);
     unit.weaponMounts = config.weaponMounts;
     unit.techMounts = config.techMounts;
     unit.maxHp = 100;
@@ -1256,9 +1262,18 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (!this.isTechUpgradeResearched(base, upgradeType)) {
       return;
     }
+    if (
+      upgradeType === "STORAGE" &&
+      base.collectorStorageBonus >= COLLECTOR_STORAGE_MAX_BONUS
+    ) {
+      return;
+    }
     base.resourceStock -= cost;
     if (upgradeType === "STORAGE") {
-      base.collectorStorageBonus += 25;
+      base.collectorStorageBonus = Math.min(
+        COLLECTOR_STORAGE_MAX_BONUS,
+        base.collectorStorageBonus + COLLECTOR_STORAGE_UPGRADE_STEP,
+      );
     }
     this.state.units.forEach((unit) => {
       if (unit.owner !== client.sessionId) {
@@ -1284,7 +1299,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           break;
         case "STORAGE":
           if (unit.unitType === "RESOURCE_COLLECTOR") {
-            unit.cargoCapacity += 25;
+            unit.cargoCapacity = Math.min(
+              RESOURCE_COLLECTOR_CAPACITY + COLLECTOR_STORAGE_MAX_BONUS,
+              unit.cargoCapacity + COLLECTOR_STORAGE_UPGRADE_STEP,
+            );
           }
           break;
         default:
