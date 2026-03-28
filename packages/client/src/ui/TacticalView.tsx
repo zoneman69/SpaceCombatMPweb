@@ -25,6 +25,7 @@ type UnitRender = {
   mesh: THREE.Mesh;
   owner: string;
   attachmentGroup: THREE.Group;
+  thrusters: THREE.Mesh[];
   attachmentSignature: string;
   usesImportedMaterial: boolean;
   selectionOutline: THREE.LineSegments | null;
@@ -92,6 +93,8 @@ const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
 const CAMERA_RADIUS_MAX = 620;
 const MOVE_EPSILON = 0.25;
+const THRUSTER_SPEED_THRESHOLD = 0.45;
+const THRUSTER_MAX_SCALE_Z = 1.6;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
 const UNIT_WEAPON_MOUNT_COST = 80;
@@ -642,15 +645,62 @@ export default function TacticalView({
       new THREE.Vector3(-2.8, 0.9, -1.3),
       new THREE.Vector3(-2.8, 0.9, 1.3),
     ];
+    const defaultFighterThrusterMountPoints = [
+      new THREE.Vector3(-1.5, 0.15, -0.9),
+      new THREE.Vector3(-1.5, 0.15, 0.9),
+    ];
+    const defaultCollectorThrusterMountPoints = [
+      new THREE.Vector3(-2.9, 0.2, -0.75),
+      new THREE.Vector3(-2.9, 0.2, 0.75),
+    ];
     const defaultCollectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
     let fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
     let collectorTankMountPoints = [...defaultCollectorTankMountPoints];
+    let fighterThrusterMountPoints = [...defaultFighterThrusterMountPoints];
+    let collectorThrusterMountPoints = [...defaultCollectorThrusterMountPoints];
     let collectorWeaponMountPoint = defaultCollectorWeaponMountPoint.clone();
     const fighterWeaponGeometry = new THREE.BoxGeometry(0.85, 0.35, 0.35);
     const collectorTankGeometry = new THREE.CylinderGeometry(0.38, 0.38, 1.65, 12);
     collectorTankGeometry.rotateZ(Math.PI / 2);
     const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
+    const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
+    thrusterGeometry.rotateX(Math.PI / 2);
+    thrusterGeometry.translate(0, 0, -0.75);
+
+    const createThrusters = (unit: UnitSchema | DebugUnit) => {
+      if (!("unitType" in unit)) {
+        return [];
+      }
+      const thrusterOffsets =
+        unit.unitType === "FIGHTER"
+          ? fighterThrusterMountPoints
+          : collectorThrusterMountPoints;
+      return thrusterOffsets.map((offset) => {
+        const thruster = new THREE.Mesh(
+          thrusterGeometry.clone(),
+          new THREE.MeshBasicMaterial({
+            color: new THREE.Color("#60a5fa"),
+            transparent: true,
+            opacity: 0,
+            depthWrite: false,
+          }),
+        );
+        thruster.position.copy(offset);
+        thruster.visible = false;
+        return thruster;
+      });
+    };
+
+    const replaceRenderThrusters = (unit: UnitSchema | DebugUnit, render: UnitRender) => {
+      render.thrusters.forEach((thruster) => {
+        render.mesh.remove(thruster);
+        thruster.geometry.dispose();
+        (thruster.material as THREE.Material).dispose();
+      });
+      render.thrusters = createThrusters(unit);
+      render.thrusters.forEach((thruster) => render.mesh.add(thruster));
+    };
 
     const updateUnitAttachments = (
       unit: UnitSchema | DebugUnit,
@@ -829,7 +879,11 @@ export default function TacticalView({
       gltf.scene.updateMatrixWorld(true);
       const sockets: { name: string; position: THREE.Vector3 }[] = [];
       gltf.scene.traverse((object) => {
-        if (!object.name.toLowerCase().startsWith("socket_")) {
+        const normalizedName = object.name.toLowerCase();
+        if (
+          !normalizedName.startsWith("socket_") &&
+          !normalizedName.startsWith("main_")
+        ) {
           return;
         }
         const worldPosition = new THREE.Vector3();
@@ -918,6 +972,8 @@ export default function TacticalView({
       const mesh = new THREE.Mesh(getUnitGeometry(unit).clone(), material);
       const attachmentGroup = new THREE.Group();
       mesh.add(attachmentGroup);
+      const thrusters = createThrusters(unit);
+      thrusters.forEach((thruster) => mesh.add(thruster));
       mesh.position.set(unit.x, 0, unit.z);
       mesh.userData = { id: unit.id };
       scene.add(mesh);
@@ -929,6 +985,7 @@ export default function TacticalView({
         mesh,
         owner: unit.owner,
         attachmentGroup,
+        thrusters,
         attachmentSignature: "",
         usesImportedMaterial,
         selectionOutline: null,
@@ -969,6 +1026,7 @@ export default function TacticalView({
           render.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly
             : UNIT_COLORS.enemy;
+        replaceRenderThrusters(unit, render);
         render.attachmentSignature = "";
         updateUnitAttachments(unit, render, color);
       });
@@ -1005,6 +1063,7 @@ export default function TacticalView({
           render.owner === localSessionIdRef.current
             ? UNIT_COLORS.friendly
             : UNIT_COLORS.enemy;
+        replaceRenderThrusters(unit, render);
         render.attachmentSignature = "";
         updateUnitAttachments(unit, render, color);
       });
@@ -1061,7 +1120,27 @@ export default function TacticalView({
         } else {
           fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
         }
+        const fighterThrusterSockets = fighterModelData.sockets
+          .filter((socket) =>
+            socket.name.toLowerCase().startsWith("main_thruster_mount_"),
+          )
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "main_thruster_mount") -
+              parseSocketOrder(b.name, "main_thruster_mount"),
+          )
+          .map((socket) => socket.position)
+          .filter((socket) => isSocketPositionUsable(socket));
+        fighterThrusterMountPoints =
+          fighterThrusterSockets.length > 0
+            ? fighterThrusterSockets
+            : [...defaultFighterThrusterMountPoints];
         applyLoadedFighterGeometry();
+        if (fighterThrusterSockets.length > 0) {
+          console.log(
+            `[tactical] using ${fighterThrusterSockets.length} fighter thruster mount(s) from model`,
+          );
+        }
         console.log(
           `[tactical] loaded fighter GLB model from ${fighterModelUrl}`,
         );
@@ -1138,12 +1217,32 @@ export default function TacticalView({
             collectorTankMountPoints[index] = socket;
           });
         }
+        const collectorThrusterSockets = collectorModelData.sockets
+          .filter((socket) =>
+            socket.name.toLowerCase().startsWith("main_thruster_mount_"),
+          )
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "main_thruster_mount") -
+              parseSocketOrder(b.name, "main_thruster_mount"),
+          )
+          .map((socket) => socket.position)
+          .filter((socket) => isSocketPositionUsable(socket));
+        collectorThrusterMountPoints =
+          collectorThrusterSockets.length > 0
+            ? collectorThrusterSockets
+            : [...defaultCollectorThrusterMountPoints];
         applyLoadedCollectorGeometry();
         if (usableCollectorTankSockets.length > 0 || usableCollectorWeaponSocket) {
           console.log(
             `[tactical] using ${usableCollectorTankSockets.length} collector tank socket(s) and ${
               usableCollectorWeaponSocket ? 1 : 0
             } weapon socket from model (tank sockets applied: ${USE_COLLECTOR_MODEL_TANK_SOCKETS})`,
+          );
+        }
+        if (collectorThrusterSockets.length > 0) {
+          console.log(
+            `[tactical] using ${collectorThrusterSockets.length} collector thruster mount(s) from model`,
           );
         }
         console.log(
@@ -1562,6 +1661,28 @@ export default function TacticalView({
             mesh.position.copy(target);
           }
           mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
+          if ("vx" in unit && "vz" in unit && render.thrusters.length > 0) {
+            const speed = Math.hypot(unit.vx, unit.vz);
+            const normalized =
+              speed <= THRUSTER_SPEED_THRESHOLD
+                ? 0
+                : Math.min(
+                    1,
+                    (speed - THRUSTER_SPEED_THRESHOLD) /
+                      Math.max(THRUSTER_SPEED_THRESHOLD, unit.speed || 1),
+                  );
+            render.thrusters.forEach((thruster) => {
+              const material = thruster.material as THREE.MeshBasicMaterial;
+              if (normalized <= 0) {
+                thruster.visible = false;
+                material.opacity = 0;
+                return;
+              }
+              thruster.visible = true;
+              thruster.scale.set(1, 1, 0.45 + normalized * THRUSTER_MAX_SCALE_Z);
+              material.opacity = 0.22 + normalized * 0.5;
+            });
+          }
           const tint =
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
