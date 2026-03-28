@@ -62,6 +62,8 @@ const RESOURCE_NODE_MAX_AMOUNT = 180_000;
 const BASE_SPAWN_RADIUS = 360;
 const MAP_RESOURCE_SPACING = 120;
 const MAP_RESOURCE_RADIUS = 480;
+const BASE_MIN_SEPARATION = 70;
+const BASE_RESOURCE_MIN_SEPARATION = 36;
 const COLLECTOR_STORAGE_UPGRADE_STEP = 25;
 const COLLECTOR_STORAGE_MAX_UPGRADES = 4;
 const COLLECTOR_STORAGE_MAX_BONUS = COLLECTOR_STORAGE_UPGRADE_STEP * COLLECTOR_STORAGE_MAX_UPGRADES;
@@ -770,15 +772,12 @@ export class SpaceRoom extends Colyseus.Room {
             });
             return;
         }
+        const spawnPosition = this.findBaseSpawnPosition();
         const base = new BaseSchema();
         base.id = nanoid();
         base.owner = sessionId;
-        const spawnIndex = this.baseSpawnIndex;
-        this.baseSpawnIndex += 1;
-        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-        const angle = spawnIndex * goldenAngle;
-        base.x = Math.cos(angle) * BASE_SPAWN_RADIUS;
-        base.z = Math.sin(angle) * BASE_SPAWN_RADIUS;
+        base.x = spawnPosition.x;
+        base.z = spawnPosition.z;
         base.hp = BASE_STARTING_HULL;
         base.shields = BASE_STARTING_SHIELDS;
         base.maxShields = BASE_STARTING_SHIELDS;
@@ -856,6 +855,9 @@ export class SpaceRoom extends Colyseus.Room {
                 resource.id = nanoid();
                 resource.x = x;
                 resource.z = z;
+                if (!this.isPositionClearForResource(resource.x, resource.z)) {
+                    continue;
+                }
                 resource.amount =
                     RESOURCE_NODE_MIN_AMOUNT +
                         Math.random() * (RESOURCE_NODE_MAX_AMOUNT - RESOURCE_NODE_MIN_AMOUNT);
@@ -865,6 +867,52 @@ export class SpaceRoom extends Colyseus.Room {
             }
         }
         console.log("[lobby] resource nodes seeded", { count: seeded });
+    }
+    findBaseSpawnPosition() {
+        const spawnIndex = this.baseSpawnIndex;
+        this.baseSpawnIndex += 1;
+        const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+        const maxAttempts = 60;
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+            const angle = (spawnIndex + attempt * 0.5) * goldenAngle;
+            const radius = BASE_SPAWN_RADIUS + Math.floor(attempt / 6) * 24;
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            if (this.isPositionClearForBase(x, z)) {
+                return { x, z };
+            }
+        }
+        const fallbackAngle = spawnIndex * goldenAngle;
+        return {
+            x: Math.cos(fallbackAngle) * BASE_SPAWN_RADIUS,
+            z: Math.sin(fallbackAngle) * BASE_SPAWN_RADIUS,
+        };
+    }
+    isPositionClearForBase(x, z) {
+        for (const base of this.state.bases.values()) {
+            if (Math.hypot(base.x - x, base.z - z) < BASE_MIN_SEPARATION) {
+                return false;
+            }
+        }
+        for (const resource of this.state.resources.values()) {
+            if (Math.hypot(resource.x - x, resource.z - z) < BASE_RESOURCE_MIN_SEPARATION) {
+                return false;
+            }
+        }
+        return true;
+    }
+    isPositionClearForResource(x, z) {
+        for (const resource of this.state.resources.values()) {
+            if (Math.hypot(resource.x - x, resource.z - z) < MAP_RESOURCE_SPACING * 0.9) {
+                return false;
+            }
+        }
+        for (const base of this.state.bases.values()) {
+            if (Math.hypot(base.x - x, base.z - z) < BASE_RESOURCE_MIN_SEPARATION) {
+                return false;
+            }
+        }
+        return true;
     }
     handleBuildRequest(client, payload) {
         console.log("[lobby] build request", {
