@@ -79,8 +79,8 @@ const MODULE_COLORS = {
   WEAPON_TURRET: new THREE.Color("#fb7185"),
 };
 
-const PLANE_SIZE = 720;
-const GRID_DIVISIONS = 36;
+const PLANE_SIZE = 1080;
+const GRID_DIVISIONS = 54;
 const CAMERA_HEIGHT = 190;
 const CAMERA_DISTANCE = 300;
 const CAMERA_LERP_SPEED = 2.5;
@@ -91,7 +91,7 @@ const CAMERA_ZOOM_SPEED = 0.25;
 const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
-const CAMERA_RADIUS_MAX = 620;
+const CAMERA_RADIUS_MAX = 900;
 const MOVE_EPSILON = 0.25;
 const THRUSTER_SPEED_THRESHOLD = 0.45;
 const THRUSTER_MAX_SCALE_Z = 1.6;
@@ -2709,10 +2709,16 @@ export default function TacticalView({
             selectedBase.radarUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
           );
         case "WEAPON":
-          return (
-            selectedBase.researchWeaponLevel1 &&
-            selectedBase.weaponUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
-          );
+          if (selectedBase.weaponUpgradeLevel >= MAX_SHIP_TECH_UPGRADE_LEVEL) {
+            return false;
+          }
+          if (selectedBase.weaponUpgradeLevel === 0) {
+            return selectedBase.researchWeaponLevel1;
+          }
+          if (selectedBase.weaponUpgradeLevel === 1) {
+            return selectedBase.researchWeaponLevel2;
+          }
+          return selectedBase.researchWeaponLevel3;
         case "STORAGE":
           return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
