@@ -666,8 +666,7 @@ export default function TacticalView({
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
     thrusterGeometry.rotateX(Math.PI / 2);
-    // Keep the cone tip anchored at the mount and extend the flame backward.
-    thrusterGeometry.translate(0, 0, 0.75);
+    thrusterGeometry.translate(0, 0, -0.75);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
@@ -688,8 +687,6 @@ export default function TacticalView({
           }),
         );
         thruster.position.copy(offset);
-        // Apply the 90-degree correction on the thruster effect only.
-        thruster.rotation.y = -Math.PI / 2;
         thruster.visible = false;
         return thruster;
       });
