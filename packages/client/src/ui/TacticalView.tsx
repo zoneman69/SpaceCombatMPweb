@@ -314,6 +314,7 @@ const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 const MAX_SHIP_TECH_UPGRADE_LEVEL = 3;
+const UNIT_FORWARD_ROTATION_OFFSET = Math.PI;
 const DEBUG_COLLECTOR_ATTACHMENTS = true;
 const USE_COLLECTOR_MODEL_TANK_SOCKETS = true;
 
@@ -1663,29 +1664,8 @@ export default function TacticalView({
           } else {
             mesh.position.copy(target);
           }
-          mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
-          if ("vx" in unit && "vz" in unit && render.thrusters.length > 0) {
-            const speed = Math.hypot(unit.vx, unit.vz);
-            const normalized =
-              speed <= THRUSTER_SPEED_THRESHOLD
-                ? 0
-                : Math.min(
-                    1,
-                    (speed - THRUSTER_SPEED_THRESHOLD) /
-                      Math.max(THRUSTER_SPEED_THRESHOLD, unit.speed || 1),
-                  );
-            render.thrusters.forEach((thruster) => {
-              const material = thruster.material as THREE.MeshBasicMaterial;
-              if (normalized <= 0) {
-                thruster.visible = false;
-                material.opacity = 0;
-                return;
-              }
-              thruster.visible = true;
-              thruster.scale.set(1, 1, 0.45 + normalized * THRUSTER_MAX_SCALE_Z);
-              material.opacity = 0.22 + normalized * 0.5;
-            });
-          }
+          mesh.rotation.y =
+            -("rot" in unit ? unit.rot : 0) + UNIT_FORWARD_ROTATION_OFFSET;
           const tint =
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
