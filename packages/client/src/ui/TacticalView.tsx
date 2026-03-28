@@ -314,7 +314,6 @@ const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
 const MAX_SHIP_TECH_UPGRADE_LEVEL = 3;
-const UNIT_FORWARD_ROTATION_OFFSET = Math.PI;
 const DEBUG_COLLECTOR_ATTACHMENTS = true;
 const USE_COLLECTOR_MODEL_TANK_SOCKETS = true;
 
@@ -1664,8 +1663,7 @@ export default function TacticalView({
           } else {
             mesh.position.copy(target);
           }
-          mesh.rotation.y =
-            -("rot" in unit ? unit.rot : 0) + UNIT_FORWARD_ROTATION_OFFSET;
+          mesh.rotation.y = "rot" in unit ? unit.rot : 0;
           const tint =
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
