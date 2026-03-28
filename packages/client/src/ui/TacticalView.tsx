@@ -689,7 +689,7 @@ export default function TacticalView({
         );
         thruster.position.copy(offset);
         // Rotate only the thruster effect by 90°; this does not alter unit orientation.
-        thruster.rotation.y = -Math.PI / 2;
+        thruster.rotation.y = Math.PI / 2;
         thruster.visible = false;
         return thruster;
       });
