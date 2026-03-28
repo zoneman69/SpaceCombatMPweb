@@ -2349,13 +2349,17 @@ export default function TacticalView({
       const module = modulesRef.current?.get(hitId);
       if (module && module.owner === localSessionId) {
         const isTechShop = module.moduleType === "TECH_SHOP";
+        const isGarage = module.moduleType === "GARAGE";
         setSelectedModuleId(hitId);
-        setSelectedBaseId(isTechShop ? module.baseId : null);
-        setIsModuleModalOpen(!isTechShop);
+        setSelectedBaseId(isTechShop || isGarage ? module.baseId : null);
+        setIsModuleModalOpen(!isTechShop && !isGarage);
         setIsBaseModalOpen(false);
         setIsUnitModalOpen(false);
+        setIsGarageModalOpen(isGarage);
         if (isTechShop) {
           setIsLabModalOpen(true);
+        } else {
+          setIsLabModalOpen(false);
         }
         if (room && selectedUnitIds.length > 0) {
           room.send("module:visit", {
