@@ -71,11 +71,11 @@ const RESOURCE_DROPOFF_RANGE = 6;
 const RESOURCE_HARVEST_WAIT = 2;
 const RESOURCE_DROPOFF_WAIT = 2;
 const RESOURCE_DROPOFF_SPOT_OFFSET = 8;
-const RESOURCE_NODE_MIN_AMOUNT = 120_000;
-const RESOURCE_NODE_MAX_AMOUNT = 420_000;
-const BASE_SPAWN_RADIUS = 260;
-const MAP_RESOURCE_SPACING = 80;
-const MAP_RESOURCE_RADIUS = 320;
+const RESOURCE_NODE_MIN_AMOUNT = 60_000;
+const RESOURCE_NODE_MAX_AMOUNT = 180_000;
+const BASE_SPAWN_RADIUS = 360;
+const MAP_RESOURCE_SPACING = 120;
+const MAP_RESOURCE_RADIUS = 480;
 const COLLECTOR_STORAGE_UPGRADE_STEP = 25;
 const COLLECTOR_STORAGE_MAX_UPGRADES = 4;
 const COLLECTOR_STORAGE_MAX_BONUS =
@@ -1266,7 +1266,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (cost <= 0 || base.resourceStock < cost) {
       return;
     }
-    if (!this.isTechUpgradeResearched(base, upgradeType)) {
+    const currentUpgradeLevel = this.getShipTechUpgradeLevel(base, upgradeType);
+    if (!this.isTechUpgradeResearched(base, upgradeType, currentUpgradeLevel)) {
       return;
     }
     if (
@@ -1275,7 +1276,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     ) {
       return;
     }
-    if (this.getShipTechUpgradeLevel(base, upgradeType) >= SHIP_TECH_UPGRADE_MAX_LEVEL) {
+    if (currentUpgradeLevel >= SHIP_TECH_UPGRADE_MAX_LEVEL) {
       return;
     }
     base.resourceStock -= cost;
@@ -1290,35 +1291,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       if (unit.owner !== client.sessionId) {
         return;
       }
-      switch (upgradeType) {
-        case "SHIELDS":
-          unit.maxShields += 15;
-          unit.shields = unit.maxShields;
-          break;
-        case "HULL":
-          unit.maxHp += 20;
-          unit.hp = Math.min(unit.maxHp, unit.hp + 20);
-          break;
-        case "SPEED":
-          unit.speedBonus += 1.5;
-          break;
-        case "RADAR":
-          unit.radarRangeBonus += 6;
-          break;
-        case "WEAPON":
-          unit.weaponDamageBonus += 2;
-          break;
-        case "STORAGE":
-          if (unit.unitType === "RESOURCE_COLLECTOR") {
-            unit.cargoCapacity = Math.min(
-              RESOURCE_COLLECTOR_CAPACITY + COLLECTOR_STORAGE_MAX_BONUS,
-              unit.cargoCapacity + COLLECTOR_STORAGE_UPGRADE_STEP,
-            );
-          }
-          break;
-        default:
-          break;
-      }
+      this.applyShipUpgradeToUnit(unit, upgradeType);
     });
   }
 
@@ -1452,7 +1425,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
   }
 
-  private isTechUpgradeResearched(base: BaseSchema, upgradeType: string) {
+  private isTechUpgradeResearched(
+    base: BaseSchema,
+    upgradeType: string,
+    currentLevel: number,
+  ) {
     switch (upgradeType) {
       case "SHIELDS":
         return base.researchShields;
@@ -1463,7 +1440,13 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       case "RADAR":
         return base.researchRadar;
       case "WEAPON":
-        return base.researchWeaponLevel1;
+        if (currentLevel <= 0) {
+          return base.researchWeaponLevel1;
+        }
+        if (currentLevel === 1) {
+          return base.researchWeaponLevel2;
+        }
+        return base.researchWeaponLevel3;
       case "STORAGE":
         return true;
       default:
@@ -1560,13 +1543,60 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private applyCurrentShipTechUpgrades(unit: UnitSchema, base: BaseSchema) {
-    unit.maxShields += base.shieldUpgradeLevel * 15;
-    unit.shields = unit.maxShields;
-    unit.maxHp += base.hullUpgradeLevel * 20;
-    unit.hp = unit.maxHp;
-    unit.speedBonus += base.speedUpgradeLevel * 1.5;
-    unit.radarRangeBonus += base.radarUpgradeLevel * 6;
-    unit.weaponDamageBonus += base.weaponUpgradeLevel * 2;
+    for (let i = 0; i < base.shieldUpgradeLevel; i += 1) {
+      this.applyShipUpgradeToUnit(unit, "SHIELDS");
+    }
+    for (let i = 0; i < base.hullUpgradeLevel; i += 1) {
+      this.applyShipUpgradeToUnit(unit, "HULL");
+    }
+    for (let i = 0; i < base.speedUpgradeLevel; i += 1) {
+      this.applyShipUpgradeToUnit(unit, "SPEED");
+    }
+    for (let i = 0; i < base.radarUpgradeLevel; i += 1) {
+      this.applyShipUpgradeToUnit(unit, "RADAR");
+    }
+    for (let i = 0; i < base.weaponUpgradeLevel; i += 1) {
+      this.applyShipUpgradeToUnit(unit, "WEAPON");
+    }
+    for (
+      let i = 0;
+      i < Math.floor(base.collectorStorageBonus / COLLECTOR_STORAGE_UPGRADE_STEP);
+      i += 1
+    ) {
+      this.applyShipUpgradeToUnit(unit, "STORAGE");
+    }
+  }
+
+  private applyShipUpgradeToUnit(unit: UnitSchema, upgradeType: string) {
+    switch (upgradeType) {
+      case "SHIELDS":
+        unit.maxShields += 15;
+        unit.shields = unit.maxShields;
+        break;
+      case "HULL":
+        unit.maxHp += 20;
+        unit.hp = Math.min(unit.maxHp, unit.hp + 20);
+        break;
+      case "SPEED":
+        unit.speedBonus += 1.5;
+        break;
+      case "RADAR":
+        unit.radarRangeBonus += 6;
+        break;
+      case "WEAPON":
+        unit.weaponDamageBonus += 2;
+        break;
+      case "STORAGE":
+        if (unit.unitType === "RESOURCE_COLLECTOR") {
+          unit.cargoCapacity = Math.min(
+            RESOURCE_COLLECTOR_CAPACITY + COLLECTOR_STORAGE_MAX_BONUS,
+            unit.cargoCapacity + COLLECTOR_STORAGE_UPGRADE_STEP,
+          );
+        }
+        break;
+      default:
+        break;
+    }
   }
 
   private findModuleByType(baseId: string, moduleType: string) {
