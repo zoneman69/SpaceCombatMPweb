@@ -310,6 +310,8 @@ const COLLECTOR_TANK_CAPACITY_STEP = 25;
 const COLLECTOR_MAX_TANK_UPGRADES = 4;
 const COLLECTOR_MAX_STORAGE_BONUS =
   COLLECTOR_TANK_CAPACITY_STEP * COLLECTOR_MAX_TANK_UPGRADES;
+const MAX_SHIP_TECH_UPGRADE_LEVEL = 3;
+const UNIT_FORWARD_ROTATION_OFFSET = Math.PI;
 const DEBUG_COLLECTOR_ATTACHMENTS = true;
 const USE_COLLECTOR_MODEL_TANK_SOCKETS = true;
 
@@ -1560,7 +1562,8 @@ export default function TacticalView({
           } else {
             mesh.position.copy(target);
           }
-          mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
+          mesh.rotation.y =
+            -("rot" in unit ? unit.rot : 0) + UNIT_FORWARD_ROTATION_OFFSET;
           const tint =
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
@@ -2527,15 +2530,30 @@ export default function TacticalView({
       }
       switch (upgradeType) {
         case "SHIELDS":
-          return selectedBase.researchShields;
+          return (
+            selectedBase.researchShields &&
+            selectedBase.shieldUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
+          );
         case "HULL":
-          return selectedBase.researchHull;
+          return (
+            selectedBase.researchHull &&
+            selectedBase.hullUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
+          );
         case "SPEED":
-          return selectedBase.researchSpeed;
+          return (
+            selectedBase.researchSpeed &&
+            selectedBase.speedUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
+          );
         case "RADAR":
-          return selectedBase.researchRadar;
+          return (
+            selectedBase.researchRadar &&
+            selectedBase.radarUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
+          );
         case "WEAPON":
-          return selectedBase.researchWeaponLevel1;
+          return (
+            selectedBase.researchWeaponLevel1 &&
+            selectedBase.weaponUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
+          );
         case "STORAGE":
           return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
@@ -3216,10 +3234,32 @@ export default function TacticalView({
                   <div className="lab-tech-grid">
                     {availableTechUpgrades.map(([key, cost]) => {
                       const canPurchase = selectedBase.resourceStock >= cost;
+                      const currentLevel =
+                        key === "SHIELDS"
+                          ? selectedBase.shieldUpgradeLevel
+                          : key === "HULL"
+                            ? selectedBase.hullUpgradeLevel
+                            : key === "SPEED"
+                              ? selectedBase.speedUpgradeLevel
+                              : key === "RADAR"
+                                ? selectedBase.radarUpgradeLevel
+                                : key === "WEAPON"
+                                  ? selectedBase.weaponUpgradeLevel
+                                  : Math.floor(
+                                      selectedBase.collectorStorageBonus /
+                                        COLLECTOR_TANK_CAPACITY_STEP,
+                                    );
+                      const maxLevel =
+                        key === "STORAGE"
+                          ? COLLECTOR_MAX_TANK_UPGRADES
+                          : MAX_SHIP_TECH_UPGRADE_LEVEL;
                       return (
                         <div className="lab-tech-card" key={key}>
                           <p className="lab-tech-title">{key}</p>
                           <p className="mount-meta">Fleet-wide ship upgrade</p>
+                          <p className="mount-meta">
+                            Level {currentLevel}/{maxLevel}
+                          </p>
                           <p className="mount-meta">Cost {cost}</p>
                           <button
                             className="hud-button mount-action"
