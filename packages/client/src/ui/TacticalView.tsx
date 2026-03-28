@@ -665,9 +665,9 @@ export default function TacticalView({
     const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
-    thrusterGeometry.rotateX(Math.PI / 2);
-    // Keep the cone tip anchored at the mount and extend the flame backward.
-    thrusterGeometry.translate(0, 0, 0.75);
+    // Thruster flame should point backward on the ship's local X axis.
+    thrusterGeometry.rotateZ(-Math.PI / 2);
+    thrusterGeometry.translate(-0.75, 0, 0);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
@@ -688,8 +688,6 @@ export default function TacticalView({
           }),
         );
         thruster.position.copy(offset);
-        // Rotate only the thruster effect by 90°; this does not alter unit orientation.
-        thruster.rotation.y = Math.PI / 2;
         thruster.visible = false;
         return thruster;
       });
@@ -1663,7 +1661,29 @@ export default function TacticalView({
           } else {
             mesh.position.copy(target);
           }
-          mesh.rotation.y = "rot" in unit ? unit.rot : 0;
+          mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
+          if ("vx" in unit && "vz" in unit && render.thrusters.length > 0) {
+            const speed = Math.hypot(unit.vx, unit.vz);
+            const normalized =
+              speed <= THRUSTER_SPEED_THRESHOLD
+                ? 0
+                : Math.min(
+                    1,
+                    (speed - THRUSTER_SPEED_THRESHOLD) /
+                      Math.max(THRUSTER_SPEED_THRESHOLD, unit.speed || 1),
+                  );
+            render.thrusters.forEach((thruster) => {
+              const material = thruster.material as THREE.MeshBasicMaterial;
+              if (normalized <= 0) {
+                thruster.visible = false;
+                material.opacity = 0;
+                return;
+              }
+              thruster.visible = true;
+              thruster.scale.set(1, 1, 0.45 + normalized * THRUSTER_MAX_SCALE_Z);
+              material.opacity = 0.22 + normalized * 0.5;
+            });
+          }
           const tint =
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
