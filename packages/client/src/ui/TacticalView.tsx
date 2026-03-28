@@ -305,8 +305,8 @@ const WEAPON_TYPES = [
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
 const STORAGE_CONTAINER_MODEL_PATH = "assets/models/storage_container.glb";
-const FIGHTER_MODEL_TARGET_SIZE = 6;
-const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
+const FIGHTER_MODEL_TARGET_SIZE = 9;
+const COLLECTOR_MODEL_TARGET_SIZE = 9.75;
 const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
@@ -2430,7 +2430,7 @@ export default function TacticalView({
         setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
-        setIsUnitModalOpen(true);
+        setIsUnitModalOpen(false);
         setIsBaseModalOpen(false);
         setIsModuleModalOpen(false);
       } else if (room && selectedUnitIds.length > 0) {
@@ -2571,7 +2571,7 @@ export default function TacticalView({
     setSelectedUnitIds([nextIdleUnitId]);
     setSelectedBaseId(null);
     setSelectedModuleId(null);
-    setIsUnitModalOpen(true);
+    setIsUnitModalOpen(false);
     setIsBaseModalOpen(false);
     setIsModuleModalOpen(false);
     setCameraMode("selected");
