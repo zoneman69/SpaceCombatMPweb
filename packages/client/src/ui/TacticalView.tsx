@@ -666,8 +666,8 @@ export default function TacticalView({
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
     // Thruster flame should point backward on the ship's local X axis.
-    thrusterGeometry.rotateZ(Math.PI / 2);
-    thrusterGeometry.translate(0.75, 0, 0);
+    thrusterGeometry.rotateZ(-Math.PI / 2);
+    thrusterGeometry.translate(-0.75, 0, 0);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
@@ -860,6 +860,8 @@ export default function TacticalView({
       targetSize: number,
     ) => {
       const geometry = mesh.geometry.clone();
+      gltf.scene.updateMatrixWorld(true);
+      geometry.applyMatrix4(mesh.matrixWorld);
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
       const center = new THREE.Vector3();
@@ -877,7 +879,6 @@ export default function TacticalView({
       const scaledCenter = center.multiplyScalar(scale);
       geometry.translate(-scaledCenter.x, -scaledCenter.y, -scaledCenter.z);
 
-      gltf.scene.updateMatrixWorld(true);
       const sockets: { name: string; position: THREE.Vector3 }[] = [];
       gltf.scene.traverse((object) => {
         const normalizedName = object.name.toLowerCase();
@@ -889,8 +890,7 @@ export default function TacticalView({
         }
         const worldPosition = new THREE.Vector3();
         object.getWorldPosition(worldPosition);
-        const meshLocal = mesh.worldToLocal(worldPosition.clone());
-        const normalized = meshLocal.multiplyScalar(scale).sub(scaledCenter);
+        const normalized = worldPosition.multiplyScalar(scale).sub(scaledCenter);
         sockets.push({ name: object.name, position: normalized });
       });
 
