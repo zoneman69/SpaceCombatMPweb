@@ -363,6 +363,7 @@ export default function TacticalView({
   const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
+  const idleCycleIndexRef = useRef(0);
   const cameraYawRef = useRef(0);
   const cameraPitchRef = useRef(
     Math.atan2(CAMERA_HEIGHT, CAMERA_DISTANCE),
@@ -2552,11 +2553,45 @@ export default function TacticalView({
     setCameraMode("free");
   };
 
+  const handleCycleIdleUnit = () => {
+    const idleUnits = Array.from(unitsRef.current?.values() ?? []).filter(
+      (unit) =>
+        unit.owner === localSessionIdRef.current &&
+        unit.orderType === "STOP" &&
+        !unit.orderTargetId,
+    );
+    if (idleUnits.length === 0) {
+      idleCycleIndexRef.current = 0;
+      return;
+    }
+    const nextIndex = idleCycleIndexRef.current % idleUnits.length;
+    const nextIdleUnitId = idleUnits[nextIndex].id;
+    idleCycleIndexRef.current = (nextIndex + 1) % idleUnits.length;
+    setSelection({ id: nextIdleUnitId });
+    setSelectedUnitIds([nextIdleUnitId]);
+    setSelectedBaseId(null);
+    setSelectedModuleId(null);
+    setIsUnitModalOpen(true);
+    setIsBaseModalOpen(false);
+    setIsModuleModalOpen(false);
+    setCameraMode("selected");
+  };
+
   const selectedUnit = selection?.id
     ? unitsRef.current?.get(selection.id) ??
       fallbackUnitsRef.current.get(selection.id) ??
       null
     : null;
+  const idleUnitIds = Array.from(unitsRef.current?.values() ?? [])
+    .filter(
+      (unit) =>
+        unit.owner === localSessionId &&
+        unit.orderType === "STOP" &&
+        !unit.orderTargetId,
+    )
+    .map((unit) => unit.id);
+  const idleUnitCount = idleUnitIds.length;
+  const hasIdleUnits = idleUnitCount > 0;
   const selectedUnitCount = selectedUnitIds.length;
   const selectedBase = selectedBaseId
     ? basesRef.current?.get(selectedBaseId) ?? null
@@ -2910,6 +2945,16 @@ export default function TacticalView({
                 onClick={handleReturnCameraToBase}
               >
                 Return camera to base
+              </button>
+              <button
+                className={`hud-button ${hasIdleUnits ? "idle-alert" : ""}`}
+                type="button"
+                onClick={handleCycleIdleUnit}
+                disabled={!hasIdleUnits}
+              >
+                {idleUnitCount > 1
+                  ? `Cycle idle units (${idleUnitCount})`
+                  : "Jump to idle unit"}
               </button>
             </div>
           </section>

@@ -498,6 +498,25 @@ body.tactical-view-scroll-locked {
   cursor: not-allowed;
 }
 
+.hud-button.idle-alert:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.95);
+  background: rgba(153, 27, 27, 0.5);
+  color: #fee2e2;
+  animation: hud-idle-alert-flash 0.95s ease-in-out infinite;
+}
+
+@keyframes hud-idle-alert-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.6);
+    filter: brightness(1.2);
+  }
+}
+
 .hud-status {
   text-align: right;
 }
