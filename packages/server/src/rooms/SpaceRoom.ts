@@ -94,6 +94,7 @@ const PIRATE_MIN_UNITS_PER_SQUAD = 1;
 const PIRATE_SPAWN_RADIUS = MAP_RESOURCE_RADIUS * 0.9;
 const PIRATE_PATROL_RADIUS = MAP_RESOURCE_RADIUS;
 const PIRATE_PATROL_ARRIVAL_RADIUS = 12;
+const COMMAND_FORMATION_SPACING = 7;
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -756,6 +757,46 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     };
   }
 
+  private assignFormationTargets(units: UnitSchema[], centerX: number, centerZ: number) {
+    if (units.length <= 1) {
+      return units.map((unit) => ({ unit, x: centerX, z: centerZ }));
+    }
+
+    const columns = Math.ceil(Math.sqrt(units.length));
+    const rows = Math.ceil(units.length / columns);
+    const halfColumns = (columns - 1) / 2;
+    const halfRows = (rows - 1) / 2;
+
+    const centroid = units.reduce(
+      (acc, unit) => {
+        acc.x += unit.x;
+        acc.z += unit.z;
+        return acc;
+      },
+      { x: 0, z: 0 },
+    );
+    centroid.x /= units.length;
+    centroid.z /= units.length;
+
+    const dirX = centerX - centroid.x;
+    const dirZ = centerZ - centroid.z;
+    const directionLength = Math.hypot(dirX, dirZ);
+    const forwardX = directionLength > 0.001 ? dirX / directionLength : 0;
+    const forwardZ = directionLength > 0.001 ? dirZ / directionLength : 1;
+    const rightX = -forwardZ;
+    const rightZ = forwardX;
+
+    return units.map((unit, index) => {
+      const row = Math.floor(index / columns);
+      const column = index % columns;
+      const localX = (column - halfColumns) * COMMAND_FORMATION_SPACING;
+      const localZ = (row - halfRows) * COMMAND_FORMATION_SPACING;
+      const targetX = centerX + rightX * localX - forwardX * localZ;
+      const targetZ = centerZ + rightZ * localX - forwardZ * localZ;
+      return { unit, x: targetX, z: targetZ };
+    });
+  }
+
   private handleCommand(client: Colyseus.Client, command: Command) {
     const units = this.getClientUnits(client.sessionId, command.unitIds);
     let targetUnits = units;
@@ -768,12 +809,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     switch (command.t) {
       case "MOVE":
-        targetUnits.forEach((unit) => {
-          unit.orderType = "MOVE";
-          unit.orderX = command.x;
-          unit.orderZ = command.z;
-          unit.orderTargetId = "";
-        });
+        this.assignFormationTargets(targetUnits, command.x, command.z).forEach(
+          ({ unit, x, z }) => {
+            unit.orderType = "MOVE";
+            unit.orderX = x;
+            unit.orderZ = z;
+            unit.orderTargetId = "";
+          },
+        );
         break;
       case "HARVEST": {
         const resource = this.state.resources.get(command.resourceId);
@@ -826,12 +869,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         });
         break;
       case "ATTACK_MOVE":
-        targetUnits.forEach((unit) => {
-          unit.orderType = "ATTACK_MOVE";
-          unit.orderX = command.x;
-          unit.orderZ = command.z;
-          unit.orderTargetId = "";
-        });
+        this.assignFormationTargets(targetUnits, command.x, command.z).forEach(
+          ({ unit, x, z }) => {
+            unit.orderType = "ATTACK_MOVE";
+            unit.orderX = x;
+            unit.orderZ = z;
+            unit.orderTargetId = "";
+          },
+        );
         break;
       case "HOLD":
         targetUnits.forEach((unit) => {
