@@ -123,7 +123,7 @@ const updateUnit = (
     unit.orderType === "ATTACK_MOVE" ||
     unit.orderType === "HARVEST" ||
     unit.orderType === "RETURN";
-  const canPursueAutoTarget = unit.orderType === "ATTACK_MOVE";
+  const canPursueAutoTarget = false;
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
@@ -144,7 +144,7 @@ const updateUnit = (
         desiredX = target.x;
         desiredZ = target.z;
         const distToTarget = distance(unit.x, unit.z, target.x, target.z);
-        shouldMove = distToTarget > stats.weaponRange * 0.85;
+        shouldMove = false;
         unit.tgt = target.id;
         maybeFire(unit, target, stats, distToTarget);
       }
@@ -361,10 +361,22 @@ const updateBase = (
   modules: ModuleCollection,
   dt: number,
 ) => {
+  const baseWeaponStats = BASE_WEAPON_STATS.LASER;
   if (base.weaponCooldownLeft > 0) {
     base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
   }
-  let hasWeaponModules = false;
+  const baseWeaponMounts = Math.max(0, base.weaponMounts ?? 0);
+  if (baseWeaponMounts > 0 && base.weaponCooldownLeft <= 0) {
+    const closest = findClosestBaseTarget(base, base.x, base.z, units, bases, baseWeaponStats);
+    if (closest) {
+      base.weaponCooldownLeft = baseWeaponStats.weaponCooldown;
+      applyDamage(
+        closest.target,
+        baseWeaponStats.weaponDamage * baseWeaponMounts,
+      );
+    }
+  }
+
   for (const module of modules.values()) {
     if (module.baseId !== base.id || module.moduleType !== "WEAPON_TURRET") {
       continue;
@@ -372,7 +384,6 @@ const updateBase = (
     if (!module.active) {
       continue;
     }
-    hasWeaponModules = true;
     if (module.weaponCooldownLeft > 0) {
       module.weaponCooldownLeft = Math.max(0, module.weaponCooldownLeft - dt);
       continue;
@@ -380,50 +391,69 @@ const updateBase = (
     const stats =
       BASE_WEAPON_STATS[module.weaponType as WeaponType] ??
       BASE_WEAPON_STATS.LASER;
-    let closest: AttackTarget | null = null;
-    let closestDistance = 0;
-    for (const target of units.values()) {
-      if (!isEnemyBase(base, target) || target.hp <= 0) {
-        continue;
-      }
-      const dist = distance(module.x, module.z, target.x, target.z);
-      if (dist > stats.weaponRange) {
-        continue;
-      }
-      if (!closest || dist < closestDistance) {
-        closest = target;
-        closestDistance = dist;
-      }
-    }
-    for (const target of bases.values()) {
-      if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
-        continue;
-      }
-      const dist = distance(module.x, module.z, target.x, target.z);
-      if (dist > stats.weaponRange) {
-        continue;
-      }
-      if (!closest || dist < closestDistance) {
-        closest = target;
-        closestDistance = dist;
-      }
-    }
+    const closest = findClosestBaseTarget(base, module.x, module.z, units, bases, stats);
     if (!closest) {
       continue;
     }
     module.weaponCooldownLeft = stats.weaponCooldown;
-    let remainingDamage = stats.weaponDamage;
-    if (closest.shields > 0) {
-      const absorbed = Math.min(closest.shields, remainingDamage);
-      closest.shields = Math.max(0, closest.shields - absorbed);
-      remainingDamage -= absorbed;
+    applyDamage(closest.target, stats.weaponDamage);
+  }
+};
+
+const findClosestBaseTarget = (
+  base: BaseSchema,
+  sourceX: number,
+  sourceZ: number,
+  units: UnitCollection,
+  bases: BaseCollection,
+  stats: Pick<ShipStats, "weaponRange">,
+) => {
+  let closest: AttackTarget | null = null;
+  let closestDistance = 0;
+  for (const target of units.values()) {
+    if (!isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
     }
-    if (remainingDamage > 0) {
-      closest.hp = Math.max(0, closest.hp - remainingDamage);
+    const dist = distance(sourceX, sourceZ, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
     }
   }
-  if (!hasWeaponModules) {
+  for (const target of bases.values()) {
+    if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(sourceX, sourceZ, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  if (!closest) {
+    return null;
+  }
+  return { target: closest, distance: closestDistance };
+};
+
+const applyDamage = (target: AttackTarget, damage: number) => {
+  let remainingDamage = Math.max(0, damage);
+  if (remainingDamage <= 0) {
     return;
+  }
+  if (target.shields > 0) {
+    const absorbed = Math.min(target.shields, remainingDamage);
+    target.shields = Math.max(0, target.shields - absorbed);
+    remainingDamage -= absorbed;
+  }
+  if (remainingDamage > 0) {
+    target.hp = Math.max(0, target.hp - remainingDamage);
   }
 };
 
