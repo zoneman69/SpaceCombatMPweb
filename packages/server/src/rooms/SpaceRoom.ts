@@ -83,6 +83,14 @@ const COLLECTOR_STORAGE_MAX_UPGRADES = 4;
 const COLLECTOR_STORAGE_MAX_BONUS =
   COLLECTOR_STORAGE_UPGRADE_STEP * COLLECTOR_STORAGE_MAX_UPGRADES;
 const SHIP_TECH_UPGRADE_MAX_LEVEL = 3;
+const PIRATE_OWNER_ID = "PIRATE_RAIDERS";
+const PIRATE_SPAWN_INTERVAL_SECONDS = 5 * 60;
+const PIRATE_TARGET_SQUADS = 3;
+const PIRATE_MAX_UNITS_PER_SQUAD = 3;
+const PIRATE_MIN_UNITS_PER_SQUAD = 1;
+const PIRATE_SPAWN_RADIUS = MAP_RESOURCE_RADIUS * 0.9;
+const PIRATE_PATROL_RADIUS = MAP_RESOURCE_RADIUS;
+const PIRATE_PATROL_ARRIVAL_RADIUS = 12;
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -265,6 +273,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
   private readonly eliminatedOwners = new Set<string>();
+  private pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
+  private pirateSquadIndex = 0;
+  private readonly pirateUnitSquads = new Map<string, string>();
 
   onCreate() {
     this.setState(new SpaceState());
@@ -446,6 +457,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
 
     this.ensureResourceNodes();
+    this.spawnPirateSquadsIfNeeded();
   }
 
   onJoin(client: Colyseus.Client) {
@@ -504,6 +516,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     const dt = dtMs / 1000;
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
+    this.updatePirateSpawns(dt);
+    this.updatePiratePatrolOrders();
     this.advanceCollectorTimers(dt);
     simulate({
       units: this.state.units,
@@ -531,6 +545,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     for (const unitId of destroyedIds) {
       this.state.units.delete(unitId);
+      this.pirateUnitSquads.delete(unitId);
     }
     for (const [baseId, lockedBy] of this.baseDropoffLocks.entries()) {
       if (destroyedIds.has(lockedBy)) {
@@ -1028,6 +1043,116 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     return {
       x: Math.cos(fallbackAngle) * BASE_SPAWN_RADIUS,
       z: Math.sin(fallbackAngle) * BASE_SPAWN_RADIUS,
+    };
+  }
+
+  private updatePirateSpawns(dt: number) {
+    this.pirateSpawnTimerSeconds = Math.max(0, this.pirateSpawnTimerSeconds - dt);
+    if (this.pirateSpawnTimerSeconds > 0) {
+      return;
+    }
+    this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
+    this.spawnPirateSquadsIfNeeded();
+  }
+
+  private spawnPirateSquadsIfNeeded() {
+    this.pruneMissingPirateUnitsFromSquads();
+    const activeSquads = this.getActivePirateSquadIds();
+    const missingSquads = Math.max(0, PIRATE_TARGET_SQUADS - activeSquads.size);
+    if (missingSquads === 0) {
+      return;
+    }
+    for (let i = 0; i < missingSquads; i += 1) {
+      const squadId = `pirate-squad-${this.pirateSquadIndex}`;
+      this.pirateSquadIndex += 1;
+      this.spawnPirateSquad(squadId);
+    }
+  }
+
+  private spawnPirateSquad(squadId: string) {
+    const spawnPoint = this.getRandomPointInRadius(PIRATE_SPAWN_RADIUS);
+    const unitCount =
+      PIRATE_MIN_UNITS_PER_SQUAD +
+      Math.floor(
+        Math.random() * (PIRATE_MAX_UNITS_PER_SQUAD - PIRATE_MIN_UNITS_PER_SQUAD + 1),
+      );
+    for (let i = 0; i < unitCount; i += 1) {
+      const unit = new UnitSchema();
+      unit.id = nanoid();
+      unit.owner = PIRATE_OWNER_ID;
+      unit.unitType = "FIGHTER";
+      unit.weaponType = "LASER";
+      unit.cargo = 0;
+      unit.cargoCapacity = 0;
+      unit.weaponMounts = this.unitConfig.FIGHTER.weaponMounts;
+      unit.techMounts = this.unitConfig.FIGHTER.techMounts;
+      unit.maxHp = 100;
+      unit.hp = unit.maxHp;
+      unit.shields = this.unitConfig.FIGHTER.shieldCapacity;
+      unit.maxShields = this.unitConfig.FIGHTER.shieldCapacity;
+      unit.speedBonus = 0;
+      unit.radarRangeBonus = 0;
+      unit.weaponDamageBonus = 0;
+      unit.x = spawnPoint.x + (Math.random() * 10 - 5);
+      unit.z = spawnPoint.z + (Math.random() * 10 - 5);
+      unit.rot = Math.random() * Math.PI * 2;
+      const patrolPoint = this.getRandomPointInRadius(PIRATE_PATROL_RADIUS);
+      unit.orderType = "ATTACK_MOVE";
+      unit.orderTargetId = "";
+      unit.orderX = patrolPoint.x;
+      unit.orderZ = patrolPoint.z;
+      this.state.units.set(unit.id, unit);
+      this.pirateUnitSquads.set(unit.id, squadId);
+    }
+    console.log("[pirates] squad spawned", { squadId, unitCount });
+  }
+
+  private updatePiratePatrolOrders() {
+    for (const unit of this.state.units.values()) {
+      if (unit.owner !== PIRATE_OWNER_ID || unit.hp <= 0) {
+        continue;
+      }
+      if (unit.orderType !== "ATTACK_MOVE") {
+        unit.orderType = "ATTACK_MOVE";
+        unit.orderTargetId = "";
+      }
+      const distToPatrol = Math.hypot(unit.x - unit.orderX, unit.z - unit.orderZ);
+      const shouldPickNewTarget =
+        !Number.isFinite(unit.orderX) ||
+        !Number.isFinite(unit.orderZ) ||
+        distToPatrol <= PIRATE_PATROL_ARRIVAL_RADIUS;
+      if (!shouldPickNewTarget) {
+        continue;
+      }
+      const patrolPoint = this.getRandomPointInRadius(PIRATE_PATROL_RADIUS);
+      unit.orderX = patrolPoint.x;
+      unit.orderZ = patrolPoint.z;
+      unit.orderTargetId = "";
+    }
+  }
+
+  private pruneMissingPirateUnitsFromSquads() {
+    for (const unitId of this.pirateUnitSquads.keys()) {
+      if (!this.state.units.has(unitId)) {
+        this.pirateUnitSquads.delete(unitId);
+      }
+    }
+  }
+
+  private getActivePirateSquadIds() {
+    const squads = new Set<string>();
+    for (const squadId of this.pirateUnitSquads.values()) {
+      squads.add(squadId);
+    }
+    return squads;
+  }
+
+  private getRandomPointInRadius(radius: number) {
+    const angle = Math.random() * Math.PI * 2;
+    const magnitude = Math.sqrt(Math.random()) * radius;
+    return {
+      x: Math.cos(angle) * magnitude,
+      z: Math.sin(angle) * magnitude,
     };
   }
 
