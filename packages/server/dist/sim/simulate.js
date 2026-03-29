@@ -85,6 +85,8 @@ const updateUnit = (unit, units, bases, stats, dt) => {
         }
         else {
             unit.tgt = "";
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
         }
     }
     let autoTarget = null;
