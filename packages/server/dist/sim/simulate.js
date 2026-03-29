@@ -69,6 +69,7 @@ const updateUnit = (unit, units, bases, stats, dt) => {
         unit.orderType === "ATTACK_MOVE" ||
         unit.orderType === "HARVEST" ||
         unit.orderType === "RETURN";
+    const canPursueAutoTarget = unit.orderType === "ATTACK_MOVE";
     let desiredX = unit.x;
     let desiredZ = unit.z;
     let shouldMove = false;
@@ -86,17 +87,23 @@ const updateUnit = (unit, units, bases, stats, dt) => {
             unit.tgt = "";
         }
     }
+    let autoTarget = null;
     if (!hasTarget) {
-        const autoTarget = findAutoTarget(unit, units, bases, stats);
+        autoTarget = findAutoTarget(unit, units, bases, stats);
         if (autoTarget) {
             unit.tgt = autoTarget.target.id;
             maybeFire(unit, autoTarget.target, stats, autoTarget.distance);
+            if (canPursueAutoTarget) {
+                desiredX = autoTarget.target.x;
+                desiredZ = autoTarget.target.z;
+                shouldMove = autoTarget.distance > stats.weaponRange * 0.85;
+            }
         }
         else {
             unit.tgt = "";
         }
     }
-    if (hasMoveTarget) {
+    if (hasMoveTarget && !(canPursueAutoTarget && autoTarget)) {
         desiredX = unit.orderX;
         desiredZ = unit.orderZ;
         const distToTarget = distance(unit.x, unit.z, desiredX, desiredZ);
