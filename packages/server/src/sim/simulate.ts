@@ -137,6 +137,8 @@ const updateUnit = (
       maybeFire(unit, target, stats, distToTarget);
     } else {
       unit.tgt = "";
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
     }
   }
 
