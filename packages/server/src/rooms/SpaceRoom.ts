@@ -282,6 +282,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly pirateUnitSquads = new Map<string, string>();
 
   onCreate() {
+    this.autoDispose = false;
     this.setState(new SpaceState());
     this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
     console.log("[lobby] space room created", {
@@ -480,25 +481,45 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
   }
 
-  onLeave(client: Colyseus.Client) {
+  async onLeave(client: Colyseus.Client, consented: boolean) {
     console.log("[lobby] client left space", {
       sessionId: client.sessionId,
+      consented,
     });
-    this.removePlayerFromLobbyRoom(client.sessionId);
+
+    if (!consented) {
+      try {
+        await this.allowReconnection(client, 20);
+        console.log("[lobby] client reconnected within grace period", {
+          sessionId: client.sessionId,
+        });
+        return;
+      } catch (_error) {
+        console.warn("[lobby] reconnect grace period expired", {
+          sessionId: client.sessionId,
+        });
+      }
+    }
+
+    this.cleanupPlayerState(client.sessionId);
+  }
+
+  private cleanupPlayerState(sessionId: string) {
+    this.removePlayerFromLobbyRoom(sessionId);
     this.emitLobbyRooms();
-    this.playerNames.delete(client.sessionId);
+    this.playerNames.delete(sessionId);
     for (const [id, unit] of this.state.units.entries()) {
-      if (unit.owner === client.sessionId) {
+      if (unit.owner === sessionId) {
         this.state.units.delete(id);
       }
     }
     for (const [id, base] of this.state.bases.entries()) {
-      if (base.owner === client.sessionId) {
+      if (base.owner === sessionId) {
         this.state.bases.delete(id);
       }
     }
     for (const [id, module] of this.state.modules.entries()) {
-      if (module.owner === client.sessionId) {
+      if (module.owner === sessionId) {
         this.state.modules.delete(id);
       }
     }

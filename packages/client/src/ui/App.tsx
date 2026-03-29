@@ -27,6 +27,8 @@ type LobbyRoom = {
   players: Player[];
 };
 
+const RECONNECT_TOKEN_KEY = "space-combat:reconnect-token";
+
 export default function App() {
   const [status, setStatus] = useState("idle");
   const [isBusy, setIsBusy] = useState(false);
@@ -95,6 +97,22 @@ export default function App() {
       let room: Room<SpaceState> | null = null;
       let attempt = 0;
 
+      const reconnectToken = window.localStorage.getItem(RECONNECT_TOKEN_KEY);
+      if (reconnectToken) {
+        try {
+          room = await colyseus.reconnect<SpaceState>(reconnectToken);
+          console.log("[lobby] reconnected with saved token", {
+            roomId: room.roomId,
+            sessionId: room.sessionId,
+          });
+        } catch (error) {
+          console.warn("[lobby] reconnect token failed; falling back to join", {
+            error,
+          });
+          window.localStorage.removeItem(RECONNECT_TOKEN_KEY);
+        }
+      }
+
       while (!room && attempt < maxAttempts) {
         attempt += 1;
         try {
@@ -118,6 +136,9 @@ export default function App() {
         throw new Error("Failed to join or create a room.");
       }
       roomRef.current = room;
+      if (room.reconnectionToken) {
+        window.localStorage.setItem(RECONNECT_TOKEN_KEY, room.reconnectionToken);
+      }
       setRoom(room);
       setStatus(`connected ✅ roomId=${room.roomId ?? "unknown"}`);
       setLocalSessionId(room.sessionId ?? null);
@@ -327,7 +348,10 @@ export default function App() {
         setCountdown(null);
         setHasConnected(false);
         setLocalSessionId(null);
-        setStatus("disconnected");
+        setStatus("disconnected, attempting reconnect...");
+        window.setTimeout(() => {
+          void connect();
+        }, 250);
       });
 
       room.onStateChange((state) => {
