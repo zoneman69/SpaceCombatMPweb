@@ -2170,6 +2170,7 @@ export default function TacticalView({
       return;
     }
     if (event.button === 2) {
+      handleDeselectAllUnits();
       dragStateRef.current = {
         mode: "rotate",
         startX: event.clientX,
