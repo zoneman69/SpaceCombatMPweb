@@ -8,6 +8,9 @@ const wrapAngle = (angle) => {
         a -= twoPi;
     return a;
 };
+const FIGHTER_VISION_RADIUS = 30;
+const COLLECTOR_VISION_RADIUS = 60;
+const BASE_VISION_RADIUS = 100;
 const BASE_WEAPON_STATS = {
     LASER: {
         weaponRange: 18,
@@ -76,12 +79,20 @@ const updateUnit = (unit, units, bases, stats, dt) => {
     if (hasTarget) {
         const target = units.get(unit.orderTargetId) ?? bases.get(unit.orderTargetId);
         if (target) {
-            desiredX = target.x;
-            desiredZ = target.z;
-            const distToTarget = distance(unit.x, unit.z, target.x, target.z);
-            shouldMove = distToTarget > stats.weaponRange * 0.85;
-            unit.tgt = target.id;
-            maybeFire(unit, target, stats, distToTarget);
+            if ("unitType" in target &&
+                !isUnitVisibleToOwner(unit.owner, target, units, bases)) {
+                unit.tgt = "";
+                unit.orderType = "STOP";
+                unit.orderTargetId = "";
+            }
+            else {
+                desiredX = target.x;
+                desiredZ = target.z;
+                const distToTarget = distance(unit.x, unit.z, target.x, target.z);
+                shouldMove = distToTarget > stats.weaponRange * 0.85;
+                unit.tgt = target.id;
+                maybeFire(unit, target, stats, distToTarget);
+            }
         }
         else {
             unit.tgt = "";
@@ -222,6 +233,28 @@ const findAutoTarget = (unit, units, bases, stats) => {
         return null;
     }
     return { target: closest, distance: closestDistance };
+};
+const getUnitVisionRadius = (unit) => (unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS) +
+    Math.max(0, unit.radarRangeBonus ?? 0);
+const isUnitVisibleToOwner = (ownerId, target, units, bases) => {
+    for (const source of units.values()) {
+        if (source.owner !== ownerId || source.hp <= 0) {
+            continue;
+        }
+        const visionRadius = getUnitVisionRadius(source);
+        if (distance(source.x, source.z, target.x, target.z) <= visionRadius) {
+            return true;
+        }
+    }
+    for (const base of bases.values()) {
+        if (base.owner !== ownerId || base.hp <= 0) {
+            continue;
+        }
+        if (distance(base.x, base.z, target.x, target.z) <= BASE_VISION_RADIUS) {
+            return true;
+        }
+    }
+    return false;
 };
 const updateBase = (base, units, bases, modules, dt) => {
     if (base.weaponCooldownLeft > 0) {
