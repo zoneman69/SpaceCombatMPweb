@@ -2393,7 +2393,7 @@ export default function TacticalView({
           const unit =
             unitsRef.current?.get(unitId) ??
             fallbackUnitsRef.current.get(unitId);
-          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+          return (unit?.weaponMounts ?? 0) > 0;
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
@@ -2439,7 +2439,7 @@ export default function TacticalView({
           const unit =
             unitsRef.current?.get(unitId) ??
             fallbackUnitsRef.current.get(unitId);
-          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+          return (unit?.weaponMounts ?? 0) > 0;
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
