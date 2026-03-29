@@ -62,6 +62,9 @@ const RESOURCE_NODE_MAX_AMOUNT = 180_000;
 const BASE_SPAWN_RADIUS = 360;
 const MAP_RESOURCE_SPACING = 120;
 const MAP_RESOURCE_RADIUS = 480;
+const MAP_RESOURCE_TARGET_NODE_COUNT = 30;
+const MAP_RESOURCE_SEED_ATTEMPTS = 500;
+const MAP_RESOURCE_CORE_EXCLUSION_RADIUS = MAP_RESOURCE_SPACING * 0.6;
 const BASE_MIN_SEPARATION = 70;
 const BASE_RESOURCE_MIN_SEPARATION = 36;
 const COLLECTOR_STORAGE_UPGRADE_STEP = 25;
@@ -860,28 +863,36 @@ export class SpaceRoom extends Colyseus.Room {
             return;
         }
         let seeded = 0;
-        for (let x = -MAP_RESOURCE_RADIUS; x <= MAP_RESOURCE_RADIUS; x += MAP_RESOURCE_SPACING) {
-            for (let z = -MAP_RESOURCE_RADIUS; z <= MAP_RESOURCE_RADIUS; z += MAP_RESOURCE_SPACING) {
-                const radius = Math.hypot(x, z);
-                if (radius < MAP_RESOURCE_SPACING * 0.6) {
-                    continue;
-                }
-                const resource = new ResourceNodeSchema();
-                resource.id = nanoid();
-                resource.x = x;
-                resource.z = z;
-                if (!this.isPositionClearForResource(resource.x, resource.z)) {
-                    continue;
-                }
-                resource.amount =
-                    RESOURCE_NODE_MIN_AMOUNT +
-                        Math.random() * (RESOURCE_NODE_MAX_AMOUNT - RESOURCE_NODE_MIN_AMOUNT);
-                resource.maxAmount = resource.amount;
-                this.state.resources.set(resource.id, resource);
-                seeded += 1;
+        let attempts = 0;
+        while (seeded < MAP_RESOURCE_TARGET_NODE_COUNT &&
+            attempts < MAP_RESOURCE_SEED_ATTEMPTS) {
+            attempts += 1;
+            const angle = Math.random() * Math.PI * 2;
+            const radius = Math.sqrt(Math.random()) * MAP_RESOURCE_RADIUS;
+            if (radius < MAP_RESOURCE_CORE_EXCLUSION_RADIUS) {
+                continue;
             }
+            const x = Math.cos(angle) * radius;
+            const z = Math.sin(angle) * radius;
+            if (!this.isPositionClearForResource(x, z)) {
+                continue;
+            }
+            const resource = new ResourceNodeSchema();
+            resource.id = nanoid();
+            resource.x = x;
+            resource.z = z;
+            resource.amount =
+                RESOURCE_NODE_MIN_AMOUNT +
+                    Math.random() * (RESOURCE_NODE_MAX_AMOUNT - RESOURCE_NODE_MIN_AMOUNT);
+            resource.maxAmount = resource.amount;
+            this.state.resources.set(resource.id, resource);
+            seeded += 1;
         }
-        console.log("[lobby] resource nodes seeded", { count: seeded });
+        console.log("[lobby] resource nodes seeded", {
+            count: seeded,
+            target: MAP_RESOURCE_TARGET_NODE_COUNT,
+            attempts,
+        });
     }
     findBaseSpawnPosition() {
         const spawnIndex = this.baseSpawnIndex;
