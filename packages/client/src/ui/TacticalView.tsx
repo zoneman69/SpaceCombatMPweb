@@ -2528,6 +2528,7 @@ export default function TacticalView({
   };
 
   const handleReturnCameraToBase = () => {
+    handleDeselectAllUnits();
     const localOwner = localSessionIdRef.current;
     if (!localOwner) {
       return;

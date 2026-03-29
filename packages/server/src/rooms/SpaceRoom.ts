@@ -45,7 +45,7 @@ const WEAPON_STATS: Record<string, Pick<ShipStats, "weaponRange" | "weaponDamage
   };
 
 const TICK_RATE = 20;
-const BASE_STARTING_RESOURCES = 100;
+const BASE_STARTING_RESOURCES = 250;
 const BASE_STARTING_HULL = 400;
 const BASE_STARTING_SHIELDS = 200;
 const BASE_STARTING_WEAPON_MOUNTS = 1;
