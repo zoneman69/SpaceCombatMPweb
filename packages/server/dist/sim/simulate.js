@@ -89,7 +89,7 @@ const updateUnit = (unit, units, bases, stats, dt) => {
                 desiredX = target.x;
                 desiredZ = target.z;
                 const distToTarget = distance(unit.x, unit.z, target.x, target.z);
-                shouldMove = false;
+                shouldMove = distToTarget > stats.weaponRange * 0.85;
                 unit.tgt = target.id;
                 maybeFire(unit, target, stats, distToTarget);
             }
