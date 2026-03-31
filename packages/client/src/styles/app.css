@@ -332,6 +332,57 @@ body.tactical-view-scroll-locked {
   display: block;
 }
 
+.mobile-controls {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 6;
+  padding: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.mobile-joystick {
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  background: rgba(15, 23, 42, 0.5);
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-joystick-knob {
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(186, 230, 253, 0.75);
+  background: rgba(56, 189, 248, 0.42);
+  box-shadow: 0 8px 16px rgba(2, 6, 23, 0.35);
+}
+
+.mobile-zoom-controls {
+  display: grid;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.mobile-zoom-button {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e0f2fe;
+  font-size: 1.6rem;
+  line-height: 1;
+  font-weight: 700;
+  touch-action: manipulation;
+}
+
 .selection-box {
   position: absolute;
   z-index: 2;
