@@ -124,11 +124,10 @@ const updateUnit = (
     unit.orderType === "HARVEST" ||
     unit.orderType === "RETURN" ||
     unit.orderType === "PATROL" ||
-    unit.orderType === "GUARD" ||
     unit.orderType === "RETURN_TO_BASE" ||
     unit.orderType === "RETURN_TO_GARAGE" ||
     unit.orderType === "RETURN_TO_REPAIR";
-  const canPursueAutoTarget = false;
+  const canPursueAutoTarget = unit.orderType === "AGGRESSIVE";
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
@@ -173,6 +172,23 @@ const updateUnit = (
       }
     } else {
       unit.tgt = "";
+    }
+  }
+
+  if (unit.orderType === "GUARD" && unit.orderTargetId) {
+    const guardedUnit = units.get(unit.orderTargetId);
+    if (
+      !guardedUnit ||
+      guardedUnit.id === unit.id ||
+      guardedUnit.owner !== unit.owner
+    ) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+    } else {
+      desiredX = guardedUnit.x;
+      desiredZ = guardedUnit.z;
+      const distToGuarded = distance(unit.x, unit.z, desiredX, desiredZ);
+      shouldMove = distToGuarded > Math.max(stats.arrivalRadius * 2, 8);
     }
   }
 
@@ -303,12 +319,15 @@ const findAutoTarget = (
   }
   let closest: AttackTarget | null = null;
   let closestDistance = 0;
+  const searchRange = unit.orderType === "AGGRESSIVE"
+    ? getUnitVisionRadius(unit)
+    : stats.weaponRange;
   for (const target of units.values()) {
     if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
       continue;
     }
     const dist = distance(unit.x, unit.z, target.x, target.z);
-    if (dist > stats.weaponRange) {
+    if (dist > searchRange) {
       continue;
     }
     if (!closest || dist < closestDistance) {
@@ -321,7 +340,7 @@ const findAutoTarget = (
       continue;
     }
     const dist = distance(unit.x, unit.z, target.x, target.z);
-    if (dist > stats.weaponRange) {
+    if (dist > searchRange) {
       continue;
     }
     if (!closest || dist < closestDistance) {

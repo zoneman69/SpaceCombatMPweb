@@ -926,6 +926,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           unit.orderTargetId = "";
         });
         break;
+      case "AGGRESSIVE":
+        targetUnits.forEach((unit) => {
+          unit.orderType = "AGGRESSIVE";
+          unit.orderTargetId = "";
+          unit.orderX = unit.x;
+          unit.orderZ = unit.z;
+        });
+        break;
       case "PATROL":
         targetUnits.forEach((unit) => {
           unit.orderType = "PATROL";
@@ -936,16 +944,20 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         break;
       case "GUARD":
         targetUnits.forEach((unit) => {
-          const base = this.getClosestBaseForOwner(client.sessionId, unit.x, unit.z);
-          if (!base) {
+          const target = this.state.units.get(command.targetId);
+          if (
+            !target ||
+            target.owner !== client.sessionId ||
+            target.id === unit.id
+          ) {
             unit.orderType = "STOP";
             unit.orderTargetId = "";
             return;
           }
           unit.orderType = "GUARD";
-          unit.orderTargetId = base.id;
-          unit.orderX = base.x;
-          unit.orderZ = base.z;
+          unit.orderTargetId = target.id;
+          unit.orderX = target.x;
+          unit.orderZ = target.z;
         });
         break;
       case "RETURN_TO_BASE":

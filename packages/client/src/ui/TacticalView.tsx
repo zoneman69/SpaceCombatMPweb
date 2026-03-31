@@ -290,7 +290,6 @@ const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
 const UNIT_PRESS_HOLD_MS = 450;
-const UNIT_CLICK_PADDING_WORLD = 8;
 const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
@@ -406,6 +405,9 @@ export default function TacticalView({
   });
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
+  const [guardSourceUnitIds, setGuardSourceUnitIds] = useState<string[] | null>(
+    null,
+  );
   const [selectedHp, setSelectedHp] = useState(0);
   const [selectedShields, setSelectedShields] = useState(0);
   const [selectedSpeed, setSelectedSpeed] = useState(0);
@@ -2151,65 +2153,6 @@ export default function TacticalView({
     }
   };
 
-  const pickUnitFromRaycaster = ({
-    owner,
-  }: {
-    owner?: string | null;
-  } = {}): string | null => {
-    const unitMeshes = Array.from(meshesRef.current.values()).map(
-      (render) => render.mesh,
-    );
-    const directHits = raycaster.intersectObjects(unitMeshes, false);
-    if (directHits.length > 0) {
-      const directHitId = directHits[0].object.userData.id as string;
-      const directHitRender = meshesRef.current.get(directHitId);
-      if (
-        directHitRender &&
-        directHitRender.mesh.visible &&
-        (!owner || directHitRender.owner === owner)
-      ) {
-        return directHitId;
-      }
-    }
-
-    let bestUnitId: string | null = null;
-    let bestDistanceSq = Number.POSITIVE_INFINITY;
-    let bestRayDepth = Number.POSITIVE_INFINITY;
-    const rayOrigin = raycaster.ray.origin;
-    const rayDirection = raycaster.ray.direction;
-    const unitPosition = new THREE.Vector3();
-
-    meshesRef.current.forEach((render, unitId) => {
-      if (!render.mesh.visible) {
-        return;
-      }
-      if (owner && render.owner !== owner) {
-        return;
-      }
-      render.mesh.getWorldPosition(unitPosition);
-      const depthAlongRay = rayDirection.dot(
-        unitPosition.clone().sub(rayOrigin),
-      );
-      if (depthAlongRay < 0) {
-        return;
-      }
-      const distanceSq = raycaster.ray.distanceSqToPoint(unitPosition);
-      if (distanceSq > UNIT_CLICK_PADDING_WORLD * UNIT_CLICK_PADDING_WORLD) {
-        return;
-      }
-      if (
-        distanceSq < bestDistanceSq ||
-        (distanceSq === bestDistanceSq && depthAlongRay < bestRayDepth)
-      ) {
-        bestDistanceSq = distanceSq;
-        bestRayDepth = depthAlongRay;
-        bestUnitId = unitId;
-      }
-    });
-
-    return bestUnitId;
-  };
-
   const getOwnedUnitFromPointer = (
     event: React.PointerEvent<HTMLDivElement>,
   ): string | null => {
@@ -2220,7 +2163,14 @@ export default function TacticalView({
     pointerNdc.x = (x / width) * 2 - 1;
     pointerNdc.y = -(y / height) * 2 + 1;
     raycaster.setFromCamera(pointerNdc, cameraRef.current);
-    return pickUnitFromRaycaster({ owner: localSessionIdRef.current });
+    const meshes = Array.from(meshesRef.current.values()).map((render) => render.mesh);
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0) {
+      return null;
+    }
+    const hitId = hits[0].object.userData.id as string;
+    const render = meshesRef.current.get(hitId);
+    return render && render.owner === localSessionIdRef.current ? hitId : null;
   };
 
   const updateSelectionFromBox = (box: {
@@ -2570,8 +2520,23 @@ export default function TacticalView({
       return;
     }
 
-    const hitId = pickUnitFromRaycaster();
-    if (hitId) {
+    const meshes = Array.from(meshesRef.current.values()).map(
+      (render) => render.mesh,
+    );
+
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length > 0) {
+      const hitId = hits[0].object.userData.id as string;
+      if (room && guardSourceUnitIds && guardSourceUnitIds.length > 0) {
+        room.send("command", {
+          t: "GUARD",
+          unitIds: guardSourceUnitIds,
+          targetId: hitId,
+        });
+        setGuardSourceUnitIds(null);
+        setIsUnitModalOpen(false);
+        return;
+      }
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
@@ -2601,6 +2566,9 @@ export default function TacticalView({
         }
       }
       return;
+    }
+    if (guardSourceUnitIds) {
+      setGuardSourceUnitIds(null);
     }
 
     const resourceMeshes = Array.from(resourceMeshesRef.current.values()).map(
@@ -2648,6 +2616,7 @@ export default function TacticalView({
         return;
       }
       if (selectedUnitIds.length > 0) {
+        setGuardSourceUnitIds(null);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
         setIsBaseModalOpen(false);
@@ -2659,6 +2628,7 @@ export default function TacticalView({
           z: target.z,
         });
       } else {
+        setGuardSourceUnitIds(null);
         setSelection(null);
         setSelectedUnitIds([]);
         setSelectedModuleId(null);
@@ -2672,6 +2642,7 @@ export default function TacticalView({
   const handleDeselectAllUnits = () => {
     setSelection(null);
     setSelectedUnitIds([]);
+    setGuardSourceUnitIds(null);
     setIsUnitModalOpen(false);
   };
 
@@ -2930,7 +2901,7 @@ export default function TacticalView({
   return (
     <div className="tactical-view">
       <div
-        className="tactical-canvas"
+        className={`tactical-canvas${guardSourceUnitIds ? " tactical-canvas--guard-select" : ""}`}
         ref={containerRef}
         onPointerEnter={() => setIsPointerInsideCanvas(true)}
         onPointerDown={handlePointerDown}
@@ -3644,6 +3615,48 @@ export default function TacticalView({
                   {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Cargo{" "}
                   {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity}
                 </p>
+                <div className="unit-behavior-panel">
+                  <p className="mount-meta">Unit behavior</p>
+                  <div className="unit-behavior-actions">
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() =>
+                        room?.send("command", {
+                          t: "AGGRESSIVE",
+                          unitIds: selectedUnitIds,
+                        })
+                      }
+                    >
+                      Attack
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() =>
+                        room?.send("command", { t: "HOLD", unitIds: selectedUnitIds })
+                      }
+                    >
+                      Hold
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        if (selectedUnitIds.length === 0) {
+                          return;
+                        }
+                        setGuardSourceUnitIds([...selectedUnitIds]);
+                        setIsUnitModalOpen(false);
+                      }}
+                    >
+                      Follow/Guard
+                    </button>
+                  </div>
+                </div>
                 <div className="module-actions">
                   <button
                     className="hud-button mount-action"
@@ -3654,16 +3667,6 @@ export default function TacticalView({
                     }
                   >
                     Patrol
-                  </button>
-                  <button
-                    className="hud-button mount-action"
-                    type="button"
-                    disabled={!room || selectedUnitIds.length === 0}
-                    onClick={() =>
-                      room?.send("command", { t: "GUARD", unitIds: selectedUnitIds })
-                    }
-                  >
-                    Guard
                   </button>
                   <button
                     className="hud-button mount-action"
