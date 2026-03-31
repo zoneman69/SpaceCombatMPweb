@@ -289,6 +289,7 @@ const MODULE_INTERACTION_RANGE = 6;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
+const UNIT_PRESS_HOLD_MS = 450;
 const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
@@ -388,8 +389,25 @@ export default function TacticalView({
     active: false,
     moved: false,
   });
+  const pressHoldTimerRef = useRef<number | null>(null);
+  const pressHoldStateRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    unitId: string | null;
+    triggered: boolean;
+  }>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    unitId: null,
+    triggered: false,
+  });
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
+  const [guardSourceUnitIds, setGuardSourceUnitIds] = useState<string[] | null>(
+    null,
+  );
   const [selectedHp, setSelectedHp] = useState(0);
   const [selectedShields, setSelectedShields] = useState(0);
   const [selectedSpeed, setSelectedSpeed] = useState(0);
@@ -2114,6 +2132,8 @@ export default function TacticalView({
     return () => window.clearInterval(interval);
   }, [selection]);
 
+  useEffect(() => () => clearPressHoldTimer(), []);
+
   const getCanvasCoords = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds =
       rendererRef.current?.domElement.getBoundingClientRect() ??
@@ -2124,6 +2144,33 @@ export default function TacticalView({
       width: bounds.width,
       height: bounds.height,
     };
+  };
+
+  const clearPressHoldTimer = () => {
+    if (pressHoldTimerRef.current) {
+      window.clearTimeout(pressHoldTimerRef.current);
+      pressHoldTimerRef.current = null;
+    }
+  };
+
+  const getOwnedUnitFromPointer = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): string | null => {
+    if (!rendererRef.current || !cameraRef.current) {
+      return null;
+    }
+    const { x, y, width, height } = getCanvasCoords(event);
+    pointerNdc.x = (x / width) * 2 - 1;
+    pointerNdc.y = -(y / height) * 2 + 1;
+    raycaster.setFromCamera(pointerNdc, cameraRef.current);
+    const meshes = Array.from(meshesRef.current.values()).map((render) => render.mesh);
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0) {
+      return null;
+    }
+    const hitId = hits[0].object.userData.id as string;
+    const render = meshesRef.current.get(hitId);
+    return render && render.owner === localSessionIdRef.current ? hitId : null;
   };
 
   const updateSelectionFromBox = (box: {
@@ -2202,6 +2249,32 @@ export default function TacticalView({
       return;
     }
     const { x, y } = getCanvasCoords(event);
+    const ownedUnitId = getOwnedUnitFromPointer(event);
+    clearPressHoldTimer();
+    pressHoldStateRef.current = {
+      pointerId: event.pointerId,
+      startX: x,
+      startY: y,
+      unitId: ownedUnitId,
+      triggered: false,
+    };
+    if (ownedUnitId) {
+      pressHoldTimerRef.current = window.setTimeout(() => {
+        const holdState = pressHoldStateRef.current;
+        if (holdState.pointerId !== event.pointerId || !holdState.unitId) {
+          return;
+        }
+        holdState.triggered = true;
+        setSelection({ id: holdState.unitId });
+        setSelectedUnitIds([holdState.unitId]);
+        setSelectedBaseId(null);
+        setSelectedModuleId(null);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
+        setIsUnitModalOpen(true);
+        setSelectionBox((prev) => ({ ...prev, visible: false }));
+      }, UNIT_PRESS_HOLD_MS);
+    }
     dragStateRef.current = {
       mode: "select",
       startX: x,
@@ -2230,6 +2303,16 @@ export default function TacticalView({
       const { x, y } = getCanvasCoords(event);
       const deltaX = x - state.startX;
       const deltaY = y - state.startY;
+      const holdState = pressHoldStateRef.current;
+      if (holdState.pointerId === event.pointerId && !holdState.triggered) {
+        if (
+          Math.abs(x - holdState.startX) > SELECTION_DRAG_THRESHOLD ||
+          Math.abs(y - holdState.startY) > SELECTION_DRAG_THRESHOLD
+        ) {
+          clearPressHoldTimer();
+          holdState.unitId = null;
+        }
+      }
       if (
         Math.abs(deltaX) > SELECTION_DRAG_THRESHOLD ||
         Math.abs(deltaY) > SELECTION_DRAG_THRESHOLD
@@ -2306,7 +2389,26 @@ export default function TacticalView({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const holdState = pressHoldStateRef.current;
+    const holdTriggered =
+      holdState.pointerId === event.pointerId && holdState.triggered;
+    clearPressHoldTimer();
+    if (holdState.pointerId === event.pointerId) {
+      pressHoldStateRef.current = {
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        unitId: null,
+        triggered: false,
+      };
+    }
     const dragState = dragStateRef.current;
+    if (holdTriggered) {
+      dragStateRef.current.active = false;
+      dragStateRef.current.mode = null;
+      setSelectionBox((prev) => ({ ...prev, visible: false }));
+      return;
+    }
     if (dragState.active && dragState.mode === "select") {
       const deltaX = dragState.lastX - dragState.startX;
       const deltaY = dragState.lastY - dragState.startY;
@@ -2425,6 +2527,16 @@ export default function TacticalView({
     const hits = raycaster.intersectObjects(meshes, false);
     if (hits.length > 0) {
       const hitId = hits[0].object.userData.id as string;
+      if (room && guardSourceUnitIds && guardSourceUnitIds.length > 0) {
+        room.send("command", {
+          t: "GUARD",
+          unitIds: guardSourceUnitIds,
+          targetId: hitId,
+        });
+        setGuardSourceUnitIds(null);
+        setIsUnitModalOpen(false);
+        return;
+      }
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
@@ -2454,6 +2566,9 @@ export default function TacticalView({
         }
       }
       return;
+    }
+    if (guardSourceUnitIds) {
+      setGuardSourceUnitIds(null);
     }
 
     const resourceMeshes = Array.from(resourceMeshesRef.current.values()).map(
@@ -2501,6 +2616,7 @@ export default function TacticalView({
         return;
       }
       if (selectedUnitIds.length > 0) {
+        setGuardSourceUnitIds(null);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
         setIsBaseModalOpen(false);
@@ -2512,6 +2628,7 @@ export default function TacticalView({
           z: target.z,
         });
       } else {
+        setGuardSourceUnitIds(null);
         setSelection(null);
         setSelectedUnitIds([]);
         setSelectedModuleId(null);
@@ -2525,6 +2642,7 @@ export default function TacticalView({
   const handleDeselectAllUnits = () => {
     setSelection(null);
     setSelectedUnitIds([]);
+    setGuardSourceUnitIds(null);
     setIsUnitModalOpen(false);
   };
 
@@ -2783,7 +2901,7 @@ export default function TacticalView({
   return (
     <div className="tactical-view">
       <div
-        className="tactical-canvas"
+        className={`tactical-canvas${guardSourceUnitIds ? " tactical-canvas--guard-select" : ""}`}
         ref={containerRef}
         onPointerEnter={() => setIsPointerInsideCanvas(true)}
         onPointerDown={handlePointerDown}
@@ -3497,6 +3615,99 @@ export default function TacticalView({
                   {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Cargo{" "}
                   {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity}
                 </p>
+                <div className="unit-behavior-panel">
+                  <p className="mount-meta">Unit behavior</p>
+                  <div className="unit-behavior-actions">
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() =>
+                        room?.send("command", {
+                          t: "AGGRESSIVE",
+                          unitIds: selectedUnitIds,
+                        })
+                      }
+                    >
+                      Attack
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() =>
+                        room?.send("command", { t: "HOLD", unitIds: selectedUnitIds })
+                      }
+                    >
+                      Hold
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        if (selectedUnitIds.length === 0) {
+                          return;
+                        }
+                        setGuardSourceUnitIds([...selectedUnitIds]);
+                        setIsUnitModalOpen(false);
+                      }}
+                    >
+                      Follow/Guard
+                    </button>
+                  </div>
+                </div>
+                <div className="module-actions">
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!room || selectedUnitIds.length === 0}
+                    onClick={() =>
+                      room?.send("command", { t: "PATROL", unitIds: selectedUnitIds })
+                    }
+                  >
+                    Patrol
+                  </button>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!room || selectedUnitIds.length === 0}
+                    onClick={() =>
+                      room?.send("command", {
+                        t: "RETURN_TO_BASE",
+                        unitIds: selectedUnitIds,
+                      })
+                    }
+                  >
+                    Return to base
+                  </button>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!room || selectedUnitIds.length === 0}
+                    onClick={() =>
+                      room?.send("command", {
+                        t: "RETURN_TO_GARAGE",
+                        unitIds: selectedUnitIds,
+                      })
+                    }
+                  >
+                    Return to garage
+                  </button>
+                  <button
+                    className="hud-button mount-action"
+                    type="button"
+                    disabled={!room || selectedUnitIds.length === 0}
+                    onClick={() =>
+                      room?.send("command", {
+                        t: "RETURN_TO_REPAIR",
+                        unitIds: selectedUnitIds,
+                      })
+                    }
+                  >
+                    Return to repair
+                  </button>
+                </div>
               </div>
             </div>,
             document.body,

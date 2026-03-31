@@ -229,6 +229,7 @@ export class SpaceRoom extends Colyseus.Room {
         this.pirateUnitSquads = new Map();
     }
     onCreate() {
+        this.autoDispose = false;
         this.setState(new SpaceState());
         this.setSimulationInterval((dt) => this.tick(dt), 1000 / TICK_RATE);
         console.log("[lobby] space room created", {
@@ -371,25 +372,43 @@ export class SpaceRoom extends Colyseus.Room {
             units: this.state.units.size,
         });
     }
-    onLeave(client) {
+    async onLeave(client, consented) {
         console.log("[lobby] client left space", {
             sessionId: client.sessionId,
+            consented,
         });
-        this.removePlayerFromLobbyRoom(client.sessionId);
+        if (!consented) {
+            try {
+                await this.allowReconnection(client, 20);
+                console.log("[lobby] client reconnected within grace period", {
+                    sessionId: client.sessionId,
+                });
+                return;
+            }
+            catch (_error) {
+                console.warn("[lobby] reconnect grace period expired", {
+                    sessionId: client.sessionId,
+                });
+            }
+        }
+        this.cleanupPlayerState(client.sessionId);
+    }
+    cleanupPlayerState(sessionId) {
+        this.removePlayerFromLobbyRoom(sessionId);
         this.emitLobbyRooms();
-        this.playerNames.delete(client.sessionId);
+        this.playerNames.delete(sessionId);
         for (const [id, unit] of this.state.units.entries()) {
-            if (unit.owner === client.sessionId) {
+            if (unit.owner === sessionId) {
                 this.state.units.delete(id);
             }
         }
         for (const [id, base] of this.state.bases.entries()) {
-            if (base.owner === client.sessionId) {
+            if (base.owner === sessionId) {
                 this.state.bases.delete(id);
             }
         }
         for (const [id, module] of this.state.modules.entries()) {
-            if (module.owner === client.sessionId) {
+            if (module.owner === sessionId) {
                 this.state.modules.delete(id);
             }
         }
@@ -628,6 +647,21 @@ export class SpaceRoom extends Colyseus.Room {
         unit.orderX = dropoffSpot.x;
         unit.orderZ = dropoffSpot.z;
     }
+    getClosestOwnedModule(ownerId, moduleType, unitX, unitZ) {
+        let closest = null;
+        let closestDistance = Number.POSITIVE_INFINITY;
+        for (const module of this.state.modules.values()) {
+            if (module.owner !== ownerId || module.moduleType !== moduleType) {
+                continue;
+            }
+            const dist = Math.hypot(module.x - unitX, module.z - unitZ);
+            if (dist < closestDistance) {
+                closest = module;
+                closestDistance = dist;
+            }
+        }
+        return closest;
+    }
     getBaseDropoffSpot(base) {
         return {
             x: base.x + RESOURCE_DROPOFF_SPOT_OFFSET,
@@ -747,6 +781,70 @@ export class SpaceRoom extends Colyseus.Room {
                 targetUnits.forEach((unit) => {
                     unit.orderType = "HOLD";
                     unit.orderTargetId = "";
+                });
+                break;
+            case "PATROL":
+                targetUnits.forEach((unit) => {
+                    unit.orderType = "PATROL";
+                    unit.orderTargetId = "";
+                    unit.orderX = unit.x;
+                    unit.orderZ = unit.z;
+                });
+                break;
+            case "GUARD":
+                targetUnits.forEach((unit) => {
+                    const base = this.getClosestBaseForOwner(client.sessionId, unit.x, unit.z);
+                    if (!base) {
+                        unit.orderType = "STOP";
+                        unit.orderTargetId = "";
+                        return;
+                    }
+                    unit.orderType = "GUARD";
+                    unit.orderTargetId = base.id;
+                    unit.orderX = base.x;
+                    unit.orderZ = base.z;
+                });
+                break;
+            case "RETURN_TO_BASE":
+                targetUnits.forEach((unit) => {
+                    const base = this.getClosestBaseForOwner(client.sessionId, unit.x, unit.z);
+                    if (!base) {
+                        unit.orderType = "STOP";
+                        unit.orderTargetId = "";
+                        return;
+                    }
+                    unit.orderType = "RETURN_TO_BASE";
+                    unit.orderTargetId = base.id;
+                    unit.orderX = base.x;
+                    unit.orderZ = base.z;
+                });
+                break;
+            case "RETURN_TO_GARAGE":
+                targetUnits.forEach((unit) => {
+                    const garage = this.getClosestOwnedModule(client.sessionId, "GARAGE", unit.x, unit.z);
+                    if (!garage) {
+                        unit.orderType = "STOP";
+                        unit.orderTargetId = "";
+                        return;
+                    }
+                    unit.orderType = "RETURN_TO_GARAGE";
+                    unit.orderTargetId = garage.id;
+                    unit.orderX = garage.x;
+                    unit.orderZ = garage.z;
+                });
+                break;
+            case "RETURN_TO_REPAIR":
+                targetUnits.forEach((unit) => {
+                    const repairBay = this.getClosestOwnedModule(client.sessionId, "REPAIR_BAY", unit.x, unit.z);
+                    if (!repairBay) {
+                        unit.orderType = "STOP";
+                        unit.orderTargetId = "";
+                        return;
+                    }
+                    unit.orderType = "RETURN_TO_REPAIR";
+                    unit.orderTargetId = repairBay.id;
+                    unit.orderX = repairBay.x;
+                    unit.orderZ = repairBay.z;
                 });
                 break;
             case "STOP":

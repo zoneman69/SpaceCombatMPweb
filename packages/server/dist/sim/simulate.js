@@ -71,7 +71,12 @@ const updateUnit = (unit, units, bases, stats, dt) => {
     const hasMoveTarget = unit.orderType === "MOVE" ||
         unit.orderType === "ATTACK_MOVE" ||
         unit.orderType === "HARVEST" ||
-        unit.orderType === "RETURN";
+        unit.orderType === "RETURN" ||
+        unit.orderType === "PATROL" ||
+        unit.orderType === "GUARD" ||
+        unit.orderType === "RETURN_TO_BASE" ||
+        unit.orderType === "RETURN_TO_GARAGE" ||
+        unit.orderType === "RETURN_TO_REPAIR";
     const canPursueAutoTarget = false;
     let desiredX = unit.x;
     let desiredZ = unit.z;
@@ -126,7 +131,11 @@ const updateUnit = (unit, units, bases, stats, dt) => {
             unit.z = desiredZ;
             unit.vx = 0;
             unit.vz = 0;
-            if (unit.orderType === "MOVE") {
+            if (unit.orderType === "MOVE" ||
+                unit.orderType === "PATROL" ||
+                unit.orderType === "RETURN_TO_BASE" ||
+                unit.orderType === "RETURN_TO_GARAGE" ||
+                unit.orderType === "RETURN_TO_REPAIR") {
                 unit.orderType = "STOP";
                 unit.orderTargetId = "";
             }

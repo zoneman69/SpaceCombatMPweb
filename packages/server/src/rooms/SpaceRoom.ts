@@ -771,6 +771,27 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.orderZ = dropoffSpot.z;
   }
 
+  private getClosestOwnedModule(
+    ownerId: string,
+    moduleType: "GARAGE" | "REPAIR_BAY",
+    unitX: number,
+    unitZ: number,
+  ) {
+    let closest: BaseModuleSchema | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const module of this.state.modules.values()) {
+      if (module.owner !== ownerId || module.moduleType !== moduleType) {
+        continue;
+      }
+      const dist = Math.hypot(module.x - unitX, module.z - unitZ);
+      if (dist < closestDistance) {
+        closest = module;
+        closestDistance = dist;
+      }
+    }
+    return closest;
+  }
+
   private getBaseDropoffSpot(base: BaseSchema) {
     return {
       x: base.x + RESOURCE_DROPOFF_SPOT_OFFSET,
@@ -903,6 +924,92 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         targetUnits.forEach((unit) => {
           unit.orderType = "HOLD";
           unit.orderTargetId = "";
+        });
+        break;
+      case "AGGRESSIVE":
+        targetUnits.forEach((unit) => {
+          unit.orderType = "AGGRESSIVE";
+          unit.orderTargetId = "";
+          unit.orderX = unit.x;
+          unit.orderZ = unit.z;
+        });
+        break;
+      case "PATROL":
+        targetUnits.forEach((unit) => {
+          unit.orderType = "PATROL";
+          unit.orderTargetId = "";
+          unit.orderX = unit.x;
+          unit.orderZ = unit.z;
+        });
+        break;
+      case "GUARD":
+        targetUnits.forEach((unit) => {
+          const target = this.state.units.get(command.targetId);
+          if (
+            !target ||
+            target.owner !== client.sessionId ||
+            target.id === unit.id
+          ) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+          }
+          unit.orderType = "GUARD";
+          unit.orderTargetId = target.id;
+          unit.orderX = target.x;
+          unit.orderZ = target.z;
+        });
+        break;
+      case "RETURN_TO_BASE":
+        targetUnits.forEach((unit) => {
+          const base = this.getClosestBaseForOwner(client.sessionId, unit.x, unit.z);
+          if (!base) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+          }
+          unit.orderType = "RETURN_TO_BASE";
+          unit.orderTargetId = base.id;
+          unit.orderX = base.x;
+          unit.orderZ = base.z;
+        });
+        break;
+      case "RETURN_TO_GARAGE":
+        targetUnits.forEach((unit) => {
+          const garage = this.getClosestOwnedModule(
+            client.sessionId,
+            "GARAGE",
+            unit.x,
+            unit.z,
+          );
+          if (!garage) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+          }
+          unit.orderType = "RETURN_TO_GARAGE";
+          unit.orderTargetId = garage.id;
+          unit.orderX = garage.x;
+          unit.orderZ = garage.z;
+        });
+        break;
+      case "RETURN_TO_REPAIR":
+        targetUnits.forEach((unit) => {
+          const repairBay = this.getClosestOwnedModule(
+            client.sessionId,
+            "REPAIR_BAY",
+            unit.x,
+            unit.z,
+          );
+          if (!repairBay) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+          }
+          unit.orderType = "RETURN_TO_REPAIR";
+          unit.orderTargetId = repairBay.id;
+          unit.orderX = repairBay.x;
+          unit.orderZ = repairBay.z;
         });
         break;
       case "STOP":
