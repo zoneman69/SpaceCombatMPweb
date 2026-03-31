@@ -1937,7 +1937,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         unit.speedBonus += 1.5;
         break;
       case "RADAR":
-        unit.radarRangeBonus += 6;
+        unit.radarRangeBonus += 12;
         break;
       case "WEAPON":
         unit.weaponDamageBonus += 2;
