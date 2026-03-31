@@ -2862,6 +2862,14 @@ export default function TacticalView({
     : "none";
   const selectedUnitOrder =
     selectedUnit && "orderType" in selectedUnit ? selectedUnit.orderType : "n/a";
+  const selectedBehaviorMode =
+    selectedUnitOrder === "AGGRESSIVE"
+      ? "AGGRESSIVE"
+      : selectedUnitOrder === "HOLD"
+        ? "HOLD"
+        : selectedUnitOrder === "GUARD"
+          ? "GUARD"
+          : "AGGRESSIVE";
   const selectedUnitTarget =
     selectedUnit && "orderTargetId" in selectedUnit
       ? selectedUnit.orderTargetId
@@ -3619,30 +3627,30 @@ export default function TacticalView({
                   <p className="mount-meta">Unit behavior</p>
                   <div className="unit-behavior-actions">
                     <button
-                      className="hud-button mount-action"
+                      className={`hud-button mount-action ${selectedBehaviorMode === "AGGRESSIVE" ? "mount-action--active" : ""}`}
                       type="button"
                       disabled={!room || selectedUnitIds.length === 0}
-                      onClick={() =>
+                      onClick={() => {
                         room?.send("command", {
                           t: "AGGRESSIVE",
                           unitIds: selectedUnitIds,
-                        })
-                      }
+                        });
+                      }}
                     >
                       Attack
                     </button>
                     <button
-                      className="hud-button mount-action"
+                      className={`hud-button mount-action ${selectedBehaviorMode === "HOLD" ? "mount-action--active" : ""}`}
                       type="button"
                       disabled={!room || selectedUnitIds.length === 0}
-                      onClick={() =>
-                        room?.send("command", { t: "HOLD", unitIds: selectedUnitIds })
-                      }
+                      onClick={() => {
+                        room?.send("command", { t: "HOLD", unitIds: selectedUnitIds });
+                      }}
                     >
                       Hold
                     </button>
                     <button
-                      className="hud-button mount-action"
+                      className={`hud-button mount-action ${selectedBehaviorMode === "GUARD" ? "mount-action--active" : ""}`}
                       type="button"
                       disabled={!room || selectedUnitIds.length === 0}
                       onClick={() => {
@@ -3658,55 +3666,59 @@ export default function TacticalView({
                   </div>
                 </div>
                 <div className="module-actions">
-                  <button
-                    className="hud-button mount-action"
-                    type="button"
-                    disabled={!room || selectedUnitIds.length === 0}
-                    onClick={() =>
-                      room?.send("command", { t: "PATROL", unitIds: selectedUnitIds })
-                    }
-                  >
-                    Patrol
-                  </button>
-                  <button
-                    className="hud-button mount-action"
-                    type="button"
-                    disabled={!room || selectedUnitIds.length === 0}
-                    onClick={() =>
-                      room?.send("command", {
-                        t: "RETURN_TO_BASE",
-                        unitIds: selectedUnitIds,
-                      })
-                    }
-                  >
-                    Return to base
-                  </button>
-                  <button
-                    className="hud-button mount-action"
-                    type="button"
-                    disabled={!room || selectedUnitIds.length === 0}
-                    onClick={() =>
-                      room?.send("command", {
-                        t: "RETURN_TO_GARAGE",
-                        unitIds: selectedUnitIds,
-                      })
-                    }
-                  >
-                    Return to garage
-                  </button>
-                  <button
-                    className="hud-button mount-action"
-                    type="button"
-                    disabled={!room || selectedUnitIds.length === 0}
-                    onClick={() =>
-                      room?.send("command", {
-                        t: "RETURN_TO_REPAIR",
-                        unitIds: selectedUnitIds,
-                      })
-                    }
-                  >
-                    Return to repair
-                  </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", { t: "PATROL", unitIds: selectedUnitIds });
+                      }}
+                    >
+                      Patrol
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_BASE",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to base
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_GARAGE",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to garage
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_REPAIR",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to repair
+                    </button>
                 </div>
               </div>
             </div>,

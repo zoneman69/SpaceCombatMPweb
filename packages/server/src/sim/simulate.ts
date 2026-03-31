@@ -49,6 +49,7 @@ type AttackTarget = Pick<
 const FIGHTER_VISION_RADIUS = 30;
 const COLLECTOR_VISION_RADIUS = 60;
 const BASE_VISION_RADIUS = 100;
+const PATROL_WANDER_RADIUS = 24;
 
 const BASE_WEAPON_STATS: Record<
   WeaponType,
@@ -202,9 +203,12 @@ const updateUnit = (
       unit.z = desiredZ;
       unit.vx = 0;
       unit.vz = 0;
-      if (
+      if (unit.orderType === "PATROL") {
+        const nextPoint = getRandomPatrolPoint(unit.x, unit.z);
+        unit.orderX = nextPoint.x;
+        unit.orderZ = nextPoint.z;
+      } else if (
         unit.orderType === "MOVE" ||
-        unit.orderType === "PATROL" ||
         unit.orderType === "RETURN_TO_BASE" ||
         unit.orderType === "RETURN_TO_GARAGE" ||
         unit.orderType === "RETURN_TO_REPAIR"
@@ -300,6 +304,15 @@ const maybeFire = (
 
 const distance = (ax: number, az: number, bx: number, bz: number) =>
   Math.hypot(ax - bx, az - bz);
+
+const getRandomPatrolPoint = (centerX: number, centerZ: number) => {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = PATROL_WANDER_RADIUS * (0.35 + Math.random() * 0.65);
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    z: centerZ + Math.sin(angle) * radius,
+  };
+};
 
 const isEnemy = (unit: UnitSchema, target: UnitSchema | BaseSchema) =>
   target.owner !== unit.owner;
