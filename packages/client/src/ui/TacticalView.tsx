@@ -290,6 +290,7 @@ const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
 const UNIT_PRESS_HOLD_MS = 450;
+const UNIT_CLICK_PADDING_WORLD = 8;
 const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
@@ -2150,6 +2151,65 @@ export default function TacticalView({
     }
   };
 
+  const pickUnitFromRaycaster = ({
+    owner,
+  }: {
+    owner?: string | null;
+  } = {}): string | null => {
+    const unitMeshes = Array.from(meshesRef.current.values()).map(
+      (render) => render.mesh,
+    );
+    const directHits = raycaster.intersectObjects(unitMeshes, false);
+    if (directHits.length > 0) {
+      const directHitId = directHits[0].object.userData.id as string;
+      const directHitRender = meshesRef.current.get(directHitId);
+      if (
+        directHitRender &&
+        directHitRender.mesh.visible &&
+        (!owner || directHitRender.owner === owner)
+      ) {
+        return directHitId;
+      }
+    }
+
+    let bestUnitId: string | null = null;
+    let bestDistanceSq = Number.POSITIVE_INFINITY;
+    let bestRayDepth = Number.POSITIVE_INFINITY;
+    const rayOrigin = raycaster.ray.origin;
+    const rayDirection = raycaster.ray.direction;
+    const unitPosition = new THREE.Vector3();
+
+    meshesRef.current.forEach((render, unitId) => {
+      if (!render.mesh.visible) {
+        return;
+      }
+      if (owner && render.owner !== owner) {
+        return;
+      }
+      render.mesh.getWorldPosition(unitPosition);
+      const depthAlongRay = rayDirection.dot(
+        unitPosition.clone().sub(rayOrigin),
+      );
+      if (depthAlongRay < 0) {
+        return;
+      }
+      const distanceSq = raycaster.ray.distanceSqToPoint(unitPosition);
+      if (distanceSq > UNIT_CLICK_PADDING_WORLD * UNIT_CLICK_PADDING_WORLD) {
+        return;
+      }
+      if (
+        distanceSq < bestDistanceSq ||
+        (distanceSq === bestDistanceSq && depthAlongRay < bestRayDepth)
+      ) {
+        bestDistanceSq = distanceSq;
+        bestRayDepth = depthAlongRay;
+        bestUnitId = unitId;
+      }
+    });
+
+    return bestUnitId;
+  };
+
   const getOwnedUnitFromPointer = (
     event: React.PointerEvent<HTMLDivElement>,
   ): string | null => {
@@ -2160,14 +2220,7 @@ export default function TacticalView({
     pointerNdc.x = (x / width) * 2 - 1;
     pointerNdc.y = -(y / height) * 2 + 1;
     raycaster.setFromCamera(pointerNdc, cameraRef.current);
-    const meshes = Array.from(meshesRef.current.values()).map((render) => render.mesh);
-    const hits = raycaster.intersectObjects(meshes, false);
-    if (hits.length === 0) {
-      return null;
-    }
-    const hitId = hits[0].object.userData.id as string;
-    const render = meshesRef.current.get(hitId);
-    return render && render.owner === localSessionIdRef.current ? hitId : null;
+    return pickUnitFromRaycaster({ owner: localSessionIdRef.current });
   };
 
   const updateSelectionFromBox = (box: {
@@ -2517,13 +2570,8 @@ export default function TacticalView({
       return;
     }
 
-    const meshes = Array.from(meshesRef.current.values()).map(
-      (render) => render.mesh,
-    );
-
-    const hits = raycaster.intersectObjects(meshes, false);
-    if (hits.length > 0) {
-      const hitId = hits[0].object.userData.id as string;
+    const hitId = pickUnitFromRaycaster();
+    if (hitId) {
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
