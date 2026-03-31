@@ -128,7 +128,8 @@ const updateUnit = (
     unit.orderType === "RETURN_TO_BASE" ||
     unit.orderType === "RETURN_TO_GARAGE" ||
     unit.orderType === "RETURN_TO_REPAIR";
-  const canPursueAutoTarget = unit.orderType === "AGGRESSIVE";
+  const canPursueAutoTarget =
+    unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL";
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
