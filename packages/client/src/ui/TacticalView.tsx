@@ -87,12 +87,15 @@ const CAMERA_LERP_SPEED = 2.5;
 const CAMERA_ROTATE_SPEED = 0.005;
 const CAMERA_PAN_SPEED = 0.9;
 const CAMERA_KEY_PAN_SPEED = 12;
+const CAMERA_MOBILE_PAN_SPEED = 22;
 const CAMERA_ZOOM_SPEED = 0.25;
 const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
 const CAMERA_RADIUS_MAX = 900;
 const MOVE_EPSILON = 0.25;
+const MOBILE_JOYSTICK_RADIUS = 44;
+const MOBILE_JOYSTICK_MAX_DISTANCE = 34;
 const THRUSTER_SPEED_THRESHOLD = 0.45;
 const THRUSTER_MAX_SCALE_Z = 1.6;
 const RESOURCE_COLLECTOR_COST = 100;
@@ -450,6 +453,13 @@ export default function TacticalView({
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
   const [shouldAutoOpenLabAfterPurchase, setShouldAutoOpenLabAfterPurchase] =
     useState(false);
+  const [isMobileControlsEnabled, setIsMobileControlsEnabled] = useState(false);
+  const [mobileJoystickKnob, setMobileJoystickKnob] = useState({ x: 0, y: 0 });
+  const mobileJoystickRef = useRef({
+    pointerId: null as number | null,
+    x: 0,
+    y: 0,
+  });
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -471,6 +481,33 @@ export default function TacticalView({
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
   }, [localSessionId]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px) and (pointer: coarse)");
+    const update = () => setIsMobileControlsEnabled(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  const panCameraTarget = (
+    forwardAmount: number,
+    rightAmount: number,
+    panStep: number,
+  ) => {
+    const camera = cameraRef.current;
+    if (!camera) {
+      return;
+    }
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    cameraTargetRef.current.addScaledVector(forward, forwardAmount * panStep);
+    cameraTargetRef.current.addScaledVector(right, rightAmount * panStep);
+  };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -513,19 +550,11 @@ export default function TacticalView({
           return;
       }
       event.preventDefault();
-      const camera = cameraRef.current;
-      const forward = new THREE.Vector3();
-      camera.getWorldDirection(forward);
-      forward.y = 0;
-      forward.normalize();
-      const right = new THREE.Vector3();
-      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
       const panStep = Math.min(
         40,
         Math.max(6, (cameraRadiusRef.current / 300) * CAMERA_KEY_PAN_SPEED),
       );
-      cameraTargetRef.current.addScaledVector(forward, forwardAmount * panStep);
-      cameraTargetRef.current.addScaledVector(right, rightAmount * panStep);
+      panCameraTarget(forwardAmount, rightAmount, panStep);
       setCameraMode("free");
     };
 
@@ -1895,6 +1924,17 @@ export default function TacticalView({
         }
       }
       const activeCameraMode = cameraModeRef.current;
+      const mobilePan = mobileJoystickRef.current;
+      if (Math.abs(mobilePan.x) > 0.01 || Math.abs(mobilePan.y) > 0.01) {
+        const panStep = Math.min(
+          80,
+          Math.max(
+            10,
+            (cameraRadiusRef.current / 280) * CAMERA_MOBILE_PAN_SPEED,
+          ),
+        );
+        panCameraTarget(-mobilePan.y, mobilePan.x, panStep * delta);
+      }
       if (activeCameraMode !== "free") {
         const localOwner = localSessionIdRef.current;
         let targetFound = false;
@@ -2386,6 +2426,43 @@ export default function TacticalView({
       CAMERA_RADIUS_MAX,
       Math.max(CAMERA_RADIUS_MIN, nextRadius),
     );
+  };
+
+  const adjustCameraRadius = (delta: number) => {
+    const nextRadius = cameraRadiusRef.current + delta;
+    cameraRadiusRef.current = Math.min(
+      CAMERA_RADIUS_MAX,
+      Math.max(CAMERA_RADIUS_MIN, nextRadius),
+    );
+    setCameraMode("free");
+  };
+
+  const handleMobileJoystickMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pointerId = mobileJoystickRef.current.pointerId;
+    if (pointerId !== event.pointerId) {
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const rawX = event.clientX - bounds.left - MOBILE_JOYSTICK_RADIUS;
+    const rawY = event.clientY - bounds.top - MOBILE_JOYSTICK_RADIUS;
+    const distance = Math.hypot(rawX, rawY);
+    const clampRatio =
+      distance > MOBILE_JOYSTICK_MAX_DISTANCE
+        ? MOBILE_JOYSTICK_MAX_DISTANCE / distance
+        : 1;
+    const knobX = rawX * clampRatio;
+    const knobY = rawY * clampRatio;
+    setMobileJoystickKnob({ x: knobX, y: knobY });
+    mobileJoystickRef.current.x = knobX / MOBILE_JOYSTICK_MAX_DISTANCE;
+    mobileJoystickRef.current.y = knobY / MOBILE_JOYSTICK_MAX_DISTANCE;
+    setCameraMode("free");
+  };
+
+  const resetMobileJoystick = () => {
+    mobileJoystickRef.current.pointerId = null;
+    mobileJoystickRef.current.x = 0;
+    mobileJoystickRef.current.y = 0;
+    setMobileJoystickKnob({ x: 0, y: 0 });
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
@@ -2954,6 +3031,67 @@ export default function TacticalView({
             }}
           />
         )}
+        {isMobileControlsEnabled ? (
+          <div className="mobile-controls" onPointerDown={(event) => event.stopPropagation()}>
+            <div
+              className="mobile-joystick"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                mobileJoystickRef.current.pointerId = event.pointerId;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                handleMobileJoystickMove(event);
+              }}
+              onPointerMove={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleMobileJoystickMove(event);
+              }}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (mobileJoystickRef.current.pointerId === event.pointerId) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                  resetMobileJoystick();
+                }
+              }}
+              onPointerCancel={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (mobileJoystickRef.current.pointerId === event.pointerId) {
+                  resetMobileJoystick();
+                }
+              }}
+            >
+              <div
+                className="mobile-joystick-knob"
+                style={{
+                  transform: `translate(${mobileJoystickKnob.x}px, ${mobileJoystickKnob.y}px)`,
+                }}
+              />
+            </div>
+            <div className="mobile-zoom-controls">
+              <button
+                className="mobile-zoom-button"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => adjustCameraRadius(-48)}
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+              <button
+                className="mobile-zoom-button"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => adjustCameraRadius(48)}
+                aria-label="Zoom out"
+              >
+                −
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
       {createPortal(
         <div
