@@ -49,6 +49,7 @@ type AttackTarget = Pick<
 const FIGHTER_VISION_RADIUS = 30;
 const COLLECTOR_VISION_RADIUS = 60;
 const BASE_VISION_RADIUS = 100;
+const RADAR_UPGRADE_VISION_STEP = 12;
 const PATROL_WANDER_RADIUS = 24;
 
 const BASE_WEAPON_STATS: Record<
@@ -373,6 +374,10 @@ const getUnitVisionRadius = (unit: UnitSchema) =>
   (unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS) +
   Math.max(0, unit.radarRangeBonus ?? 0);
 
+const getBaseVisionRadius = (base: BaseSchema) =>
+  BASE_VISION_RADIUS +
+  Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP;
+
 const isUnitVisibleToOwner = (
   ownerId: string,
   target: UnitSchema,
@@ -392,7 +397,7 @@ const isUnitVisibleToOwner = (
     if (base.owner !== ownerId || base.hp <= 0) {
       continue;
     }
-    if (distance(base.x, base.z, target.x, target.z) <= BASE_VISION_RADIUS) {
+    if (distance(base.x, base.z, target.x, target.z) <= getBaseVisionRadius(base)) {
       return true;
     }
   }
