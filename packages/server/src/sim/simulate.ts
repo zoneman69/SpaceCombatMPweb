@@ -333,9 +333,10 @@ const findAutoTarget = (
   }
   let closest: AttackTarget | null = null;
   let closestDistance = 0;
-  const searchRange = unit.orderType === "AGGRESSIVE"
-    ? getUnitVisionRadius(unit)
-    : stats.weaponRange;
+  const searchRange =
+    unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL"
+      ? getUnitVisionRadius(unit)
+      : stats.weaponRange;
   for (const target of units.values()) {
     if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
       continue;
