@@ -16,6 +16,7 @@ type Player = {
   id: string;
   name: string;
   ready: boolean;
+  isBot?: boolean;
 };
 
 type LobbyRoom = {
@@ -260,6 +261,7 @@ export default function App() {
               id: player.id,
               name: player.name,
               ready: player.ready,
+              isBot: player.isBot,
             }));
             return {
               id: roomItem.id,
@@ -429,6 +431,14 @@ export default function App() {
     roomRef.current?.send("lobby:toggleReady");
   };
 
+  const addAiPlayer = () => {
+    roomRef.current?.send("lobby:addAiPlayer");
+  };
+
+  const removeAiPlayer = (playerId: string) => {
+    roomRef.current?.send("lobby:removeAiPlayer", { playerId });
+  };
+
   if (view === "game") {
     return (
       <div className="game-shell game-shell--tactical">
@@ -465,7 +475,7 @@ export default function App() {
             </span>
           </div>
           <p className="status-meta">
-            Room service: <code>space</code> · Tick rate: 20 Hz · Fleet limit: 8
+            Room service: <code>space</code> · Tick rate: 20 Hz · Fleet limit: 3
           </p>
         </div>
       </header>
@@ -522,7 +532,7 @@ export default function App() {
                   <div className="room-meta">
                     <span>Players</span>
                     <strong>
-                      {room.players.length} / 8
+                      {room.players.length} / 3
                     </strong>
                   </div>
                   <div className="room-actions">
@@ -558,18 +568,43 @@ export default function App() {
                   </strong>
                 </div>
               </div>
+              {activeRoom.hostId === localSessionId && (
+                <div className="ready-actions">
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={addAiPlayer}
+                    disabled={activeRoom.players.length >= 3}
+                  >
+                    Add AI player
+                  </button>
+                </div>
+              )}
               <ul className="roster-list">
                 {activeRoom.players.map((player) => (
                   <li key={player.id} className="roster-item">
                     <div>
                       <p>
-                        {player.id === localSessionId ? "You" : player.name}
+                        {player.id === localSessionId
+                          ? "You"
+                          : `${player.name}${player.isBot ? " (AI)" : ""}`}
                       </p>
                       <span>{player.ready ? "Ready" : "Standing by"}</span>
                     </div>
-                    <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
-                      {player.ready ? "Ready" : "Idle"}
-                    </span>
+                    <div className="room-actions">
+                      <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
+                        {player.ready ? "Ready" : "Idle"}
+                      </span>
+                      {activeRoom.hostId === localSessionId && player.isBot && (
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => removeAiPlayer(player.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
