@@ -277,6 +277,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
   private readonly eliminatedOwners = new Set<string>();
+  private hasBroadcastMatchEnd = false;
   private pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
   private pirateSquadIndex = 0;
   private readonly pirateUnitSquads = new Map<string, string>();
@@ -553,6 +554,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
+    this.updateDefeatedPlayersAndMatchState();
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
     this.processResearch(dt);
@@ -584,7 +586,6 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     for (const [id, base] of this.state.bases.entries()) {
       if (base.hp <= 0) {
         destroyedIds.add(id);
-        this.eliminatedOwners.add(base.owner);
       }
     }
     if (destroyedIds.size === 0) {
@@ -599,6 +600,103 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         }
       }
     }
+  }
+
+  private updateDefeatedPlayersAndMatchState() {
+    const connectedOwners = new Set<string>(this.clients.map((client) => client.sessionId));
+    const aliveOwners = this.getAliveOwners();
+    for (const client of this.clients) {
+      if (this.eliminatedOwners.has(client.sessionId)) {
+        continue;
+      }
+      if (aliveOwners.has(client.sessionId)) {
+        continue;
+      }
+      this.eliminatedOwners.add(client.sessionId);
+      client.send("game:playerDefeated", {
+        ownerId: client.sessionId,
+        playersRemaining: aliveOwners.size,
+        endStats: this.getEndStats(),
+      });
+    }
+
+    const connectedAliveOwners = Array.from(aliveOwners).filter((ownerId) =>
+      connectedOwners.has(ownerId),
+    );
+    if (connectedAliveOwners.length <= 1 && !this.hasBroadcastMatchEnd) {
+      this.hasBroadcastMatchEnd = true;
+      this.broadcast("game:ended", {
+        winnerId: connectedAliveOwners[0] ?? "",
+        endStats: this.getEndStats(),
+      });
+    }
+  }
+
+  private getAliveOwners() {
+    const aliveOwners = new Set<string>();
+    for (const unit of this.state.units.values()) {
+      if (unit.owner !== PIRATE_OWNER_ID) {
+        aliveOwners.add(unit.owner);
+      }
+    }
+    for (const base of this.state.bases.values()) {
+      if (base.owner !== PIRATE_OWNER_ID) {
+        aliveOwners.add(base.owner);
+      }
+    }
+    return aliveOwners;
+  }
+
+  private getEndStats() {
+    const ownerStats = new Map<
+      string,
+      { ownerId: string; playerName: string; units: number; bases: number; modules: number; resources: number }
+    >();
+    const ensureOwner = (ownerId: string) => {
+      const existing = ownerStats.get(ownerId);
+      if (existing) {
+        return existing;
+      }
+      const stat = {
+        ownerId,
+        playerName: this.getPlayerName(ownerId),
+        units: 0,
+        bases: 0,
+        modules: 0,
+        resources: 0,
+      };
+      ownerStats.set(ownerId, stat);
+      return stat;
+    };
+
+    for (const client of this.clients) {
+      ensureOwner(client.sessionId);
+    }
+    for (const unit of this.state.units.values()) {
+      if (unit.owner === PIRATE_OWNER_ID) {
+        continue;
+      }
+      ensureOwner(unit.owner).units += 1;
+    }
+    for (const base of this.state.bases.values()) {
+      if (base.owner === PIRATE_OWNER_ID) {
+        continue;
+      }
+      const stat = ensureOwner(base.owner);
+      stat.bases += 1;
+      stat.resources += Math.max(0, base.resourceStock);
+    }
+    for (const module of this.state.modules.values()) {
+      if (module.owner === PIRATE_OWNER_ID) {
+        continue;
+      }
+      ensureOwner(module.owner).modules += 1;
+    }
+    return Array.from(ownerStats.values()).sort((a, b) => {
+      if (b.bases !== a.bases) return b.bases - a.bases;
+      if (b.units !== a.units) return b.units - a.units;
+      return b.resources - a.resources;
+    });
   }
 
   private advanceCollectorTimers(dt: number) {

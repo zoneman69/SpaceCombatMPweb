@@ -224,6 +224,7 @@ export class SpaceRoom extends Colyseus.Room {
         this.baseDropoffLocks = new Map();
         this.baseSpawnIndex = 0;
         this.eliminatedOwners = new Set();
+        this.hasBroadcastMatchEnd = false;
         this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
         this.pirateSquadIndex = 0;
         this.pirateUnitSquads = new Map();
@@ -439,6 +440,7 @@ export class SpaceRoom extends Colyseus.Room {
         });
         this.removeDestroyedUnits();
         this.removeDestroyedBases();
+        this.updateDefeatedPlayersAndMatchState();
         this.processCollectorHarvesting();
         this.processRepairBays(dt);
         this.processResearch(dt);
@@ -468,7 +470,6 @@ export class SpaceRoom extends Colyseus.Room {
         for (const [id, base] of this.state.bases.entries()) {
             if (base.hp <= 0) {
                 destroyedIds.add(id);
-                this.eliminatedOwners.add(base.owner);
             }
         }
         if (destroyedIds.size === 0) {
@@ -483,6 +484,95 @@ export class SpaceRoom extends Colyseus.Room {
                 }
             }
         }
+    }
+    updateDefeatedPlayersAndMatchState() {
+        const connectedOwners = new Set(this.clients.map((client) => client.sessionId));
+        const aliveOwners = this.getAliveOwners();
+        for (const client of this.clients) {
+            if (this.eliminatedOwners.has(client.sessionId)) {
+                continue;
+            }
+            if (aliveOwners.has(client.sessionId)) {
+                continue;
+            }
+            this.eliminatedOwners.add(client.sessionId);
+            client.send("game:playerDefeated", {
+                ownerId: client.sessionId,
+                playersRemaining: aliveOwners.size,
+                endStats: this.getEndStats(),
+            });
+        }
+        const connectedAliveOwners = Array.from(aliveOwners).filter((ownerId) => connectedOwners.has(ownerId));
+        if (connectedAliveOwners.length <= 1 && !this.hasBroadcastMatchEnd) {
+            this.hasBroadcastMatchEnd = true;
+            this.broadcast("game:ended", {
+                winnerId: connectedAliveOwners[0] ?? "",
+                endStats: this.getEndStats(),
+            });
+        }
+    }
+    getAliveOwners() {
+        const aliveOwners = new Set();
+        for (const unit of this.state.units.values()) {
+            if (unit.owner !== PIRATE_OWNER_ID) {
+                aliveOwners.add(unit.owner);
+            }
+        }
+        for (const base of this.state.bases.values()) {
+            if (base.owner !== PIRATE_OWNER_ID) {
+                aliveOwners.add(base.owner);
+            }
+        }
+        return aliveOwners;
+    }
+    getEndStats() {
+        const ownerStats = new Map();
+        const ensureOwner = (ownerId) => {
+            const existing = ownerStats.get(ownerId);
+            if (existing) {
+                return existing;
+            }
+            const stat = {
+                ownerId,
+                playerName: this.getPlayerName(ownerId),
+                units: 0,
+                bases: 0,
+                modules: 0,
+                resources: 0,
+            };
+            ownerStats.set(ownerId, stat);
+            return stat;
+        };
+        for (const client of this.clients) {
+            ensureOwner(client.sessionId);
+        }
+        for (const unit of this.state.units.values()) {
+            if (unit.owner === PIRATE_OWNER_ID) {
+                continue;
+            }
+            ensureOwner(unit.owner).units += 1;
+        }
+        for (const base of this.state.bases.values()) {
+            if (base.owner === PIRATE_OWNER_ID) {
+                continue;
+            }
+            const stat = ensureOwner(base.owner);
+            stat.bases += 1;
+            stat.resources += Math.max(0, base.resourceStock);
+        }
+        for (const module of this.state.modules.values()) {
+            if (module.owner === PIRATE_OWNER_ID) {
+                continue;
+            }
+            ensureOwner(module.owner).modules += 1;
+        }
+        return Array.from(ownerStats.values()).sort((a, b) => {
+            if (b.bases !== a.bases)
+                return b.bases - a.bases;
+            if (b.units !== a.units)
+                return b.units - a.units;
+            return b.resources - a.resources;
+        });
     }
     advanceCollectorTimers(dt) {
         for (const unit of this.state.units.values()) {
@@ -783,6 +873,14 @@ export class SpaceRoom extends Colyseus.Room {
                     unit.orderTargetId = "";
                 });
                 break;
+            case "AGGRESSIVE":
+                targetUnits.forEach((unit) => {
+                    unit.orderType = "AGGRESSIVE";
+                    unit.orderTargetId = "";
+                    unit.orderX = unit.x;
+                    unit.orderZ = unit.z;
+                });
+                break;
             case "PATROL":
                 targetUnits.forEach((unit) => {
                     unit.orderType = "PATROL";
@@ -793,16 +891,18 @@ export class SpaceRoom extends Colyseus.Room {
                 break;
             case "GUARD":
                 targetUnits.forEach((unit) => {
-                    const base = this.getClosestBaseForOwner(client.sessionId, unit.x, unit.z);
-                    if (!base) {
+                    const target = this.state.units.get(command.targetId);
+                    if (!target ||
+                        target.owner !== client.sessionId ||
+                        target.id === unit.id) {
                         unit.orderType = "STOP";
                         unit.orderTargetId = "";
                         return;
                     }
                     unit.orderType = "GUARD";
-                    unit.orderTargetId = base.id;
-                    unit.orderX = base.x;
-                    unit.orderZ = base.z;
+                    unit.orderTargetId = target.id;
+                    unit.orderX = target.x;
+                    unit.orderZ = target.z;
                 });
                 break;
             case "RETURN_TO_BASE":
@@ -1674,7 +1774,7 @@ export class SpaceRoom extends Colyseus.Room {
                 unit.speedBonus += 1.5;
                 break;
             case "RADAR":
-                unit.radarRangeBonus += 6;
+                unit.radarRangeBonus += 12;
                 break;
             case "WEAPON":
                 unit.weaponDamageBonus += 2;
