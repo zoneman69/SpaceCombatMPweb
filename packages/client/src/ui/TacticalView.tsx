@@ -65,6 +65,9 @@ const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   return FOG_COLLECTOR_VISION_RADIUS;
 };
 
+const getBaseFogRadius = (base: BaseSchema) =>
+  FOG_BASE_VISION_RADIUS + Math.max(0, base.radarUpgradeLevel ?? 0) * 12;
+
 const UNIT_COLORS = {
   friendly: new THREE.Color("#7dd3fc"),
   enemy: new THREE.Color("#f87171"),
@@ -1857,7 +1860,7 @@ export default function TacticalView({
           fogSources.push({
             x: base.x,
             z: base.z,
-            radius: FOG_BASE_VISION_RADIUS,
+            radius: getBaseFogRadius(base),
           });
         });
       }

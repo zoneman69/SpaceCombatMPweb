@@ -277,6 +277,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
   private readonly eliminatedOwners = new Set<string>();
+  private matchEnded = false;
   private pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
   private pirateSquadIndex = 0;
   private readonly pirateUnitSquads = new Map<string, string>();
@@ -538,6 +539,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private tick(dtMs: number) {
+    if (this.matchEnded) {
+      return;
+    }
     const dt = dtMs / 1000;
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
@@ -553,6 +557,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
+    this.maybeEndMatch();
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
     this.processResearch(dt);
@@ -581,10 +586,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private removeDestroyedBases() {
     const destroyedIds = new Set<string>();
+    const destroyedOwners = new Set<string>();
     for (const [id, base] of this.state.bases.entries()) {
       if (base.hp <= 0) {
         destroyedIds.add(id);
-        this.eliminatedOwners.add(base.owner);
+        destroyedOwners.add(base.owner);
       }
     }
     if (destroyedIds.size === 0) {
@@ -599,6 +605,63 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         }
       }
     }
+    for (const ownerId of destroyedOwners) {
+      const hasRemainingBase = Array.from(this.state.bases.values()).some(
+        (base) => base.owner === ownerId && base.hp > 0,
+      );
+      if (hasRemainingBase) {
+        continue;
+      }
+      this.eliminateOwner(ownerId);
+    }
+  }
+
+  private eliminateOwner(ownerId: string) {
+    this.eliminatedOwners.add(ownerId);
+    for (const [id, unit] of this.state.units.entries()) {
+      if (unit.owner === ownerId) {
+        this.state.units.delete(id);
+        this.pirateUnitSquads.delete(id);
+      }
+    }
+    for (const [id, module] of this.state.modules.entries()) {
+      if (module.owner === ownerId) {
+        this.state.modules.delete(id);
+      }
+    }
+    for (const [baseId, lockedBy] of this.baseDropoffLocks.entries()) {
+      const unit = this.state.units.get(lockedBy);
+      if (!unit || unit.owner === ownerId) {
+        this.baseDropoffLocks.delete(baseId);
+      }
+    }
+  }
+
+  private maybeEndMatch() {
+    if (this.matchEnded) {
+      return;
+    }
+    const connectedHumanOwners = new Set(this.clients.map((c) => c.sessionId));
+    if (connectedHumanOwners.size < 2) {
+      return;
+    }
+    const survivingOwners = new Set<string>();
+    for (const base of this.state.bases.values()) {
+      if (
+        base.owner === PIRATE_OWNER_ID ||
+        base.hp <= 0 ||
+        this.eliminatedOwners.has(base.owner)
+      ) {
+        continue;
+      }
+      survivingOwners.add(base.owner);
+    }
+    if (survivingOwners.size > 1) {
+      return;
+    }
+    this.matchEnded = true;
+    const [winnerId] = Array.from(survivingOwners.values());
+    this.broadcast("game:ended", { winnerId: winnerId ?? null });
   }
 
   private advanceCollectorTimers(dt: number) {
