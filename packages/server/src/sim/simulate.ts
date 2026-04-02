@@ -46,6 +46,8 @@ type AttackTarget = Pick<
   "id" | "x" | "z" | "hp" | "shields" | "maxShields"
 >;
 
+type VisibilityTarget = Pick<UnitSchema | BaseSchema, "x" | "z">;
+
 const FIGHTER_VISION_RADIUS = 30;
 const COLLECTOR_VISION_RADIUS = 60;
 const BASE_VISION_RADIUS = 100;
@@ -140,10 +142,7 @@ const updateUnit = (
     const target =
       units.get(unit.orderTargetId) ?? bases.get(unit.orderTargetId);
     if (target) {
-      if (
-        "unitType" in target &&
-        !isUnitVisibleToOwner(unit.owner, target, units, bases)
-      ) {
+      if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
         unit.tgt = "";
         unit.orderType = "STOP";
         unit.orderTargetId = "";
@@ -342,6 +341,9 @@ const findAutoTarget = (
     if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
       continue;
     }
+    if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
+      continue;
+    }
     const dist = distance(unit.x, unit.z, target.x, target.z);
     if (dist > searchRange) {
       continue;
@@ -353,6 +355,9 @@ const findAutoTarget = (
   }
   for (const target of bases.values()) {
     if (!isEnemy(unit, target) || target.hp <= 0) {
+      continue;
+    }
+    if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
       continue;
     }
     const dist = distance(unit.x, unit.z, target.x, target.z);
@@ -378,9 +383,9 @@ const getBaseVisionRadius = (base: BaseSchema) =>
   BASE_VISION_RADIUS +
   Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP;
 
-const isUnitVisibleToOwner = (
+const isTargetVisibleToOwner = (
   ownerId: string,
-  target: UnitSchema,
+  target: VisibilityTarget,
   units: UnitCollection,
   bases: BaseCollection,
 ) => {
