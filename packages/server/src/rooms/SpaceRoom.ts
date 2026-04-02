@@ -581,10 +581,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private removeDestroyedBases() {
     const destroyedIds = new Set<string>();
+    const destroyedOwners = new Set<string>();
     for (const [id, base] of this.state.bases.entries()) {
       if (base.hp <= 0) {
         destroyedIds.add(id);
-        this.eliminatedOwners.add(base.owner);
+        destroyedOwners.add(base.owner);
       }
     }
     if (destroyedIds.size === 0) {
@@ -597,6 +598,36 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         if (module.baseId === baseId) {
           this.state.modules.delete(moduleId);
         }
+      }
+    }
+    for (const ownerId of destroyedOwners) {
+      const hasRemainingBase = Array.from(this.state.bases.values()).some(
+        (base) => base.owner === ownerId && base.hp > 0,
+      );
+      if (hasRemainingBase) {
+        continue;
+      }
+      this.eliminateOwner(ownerId);
+    }
+  }
+
+  private eliminateOwner(ownerId: string) {
+    this.eliminatedOwners.add(ownerId);
+    for (const [id, unit] of this.state.units.entries()) {
+      if (unit.owner === ownerId) {
+        this.state.units.delete(id);
+        this.pirateUnitSquads.delete(id);
+      }
+    }
+    for (const [id, module] of this.state.modules.entries()) {
+      if (module.owner === ownerId) {
+        this.state.modules.delete(id);
+      }
+    }
+    for (const [baseId, lockedBy] of this.baseDropoffLocks.entries()) {
+      const unit = this.state.units.get(lockedBy);
+      if (!unit || unit.owner === ownerId) {
+        this.baseDropoffLocks.delete(baseId);
       }
     }
   }
