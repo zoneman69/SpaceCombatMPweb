@@ -279,7 +279,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly baseDropoffLocks = new Map<string, string>();
   private baseSpawnIndex = 0;
   private readonly eliminatedOwners = new Set<string>();
-  private hasBroadcastMatchEnd = false;
+  private matchEnded = false;
   private pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
   private pirateSquadIndex = 0;
   private readonly pirateUnitSquads = new Map<string, string>();
@@ -605,6 +605,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private tick(dtMs: number) {
+    if (this.matchEnded) {
+      return;
+    }
     const dt = dtMs / 1000;
     this.ensureBasesForAllClients();
     this.ensureResourceNodes();
@@ -621,7 +624,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
-    this.updateDefeatedPlayersAndMatchState();
+    this.maybeEndMatch();
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
     this.processResearch(dt);
@@ -701,163 +704,31 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
   }
 
-  private updateDefeatedPlayersAndMatchState() {
-    const connectedOwners = new Set<string>([
-      ...this.clients.map((client) => client.sessionId),
-      ...this.aiRoomIds.keys(),
-    ]);
-    const aliveOwners = this.getAliveOwners();
-    for (const ownerId of connectedOwners) {
-      if (this.eliminatedOwners.has(ownerId)) {
-        continue;
-      }
-      if (aliveOwners.has(ownerId)) {
-        continue;
-      }
-      this.eliminatedOwners.add(ownerId);
-      this.broadcast("game:playerDefeated", {
-        ownerId,
-        playersRemaining: aliveOwners.size,
-        endStats: this.getEndStats(),
-      });
+  private maybeEndMatch() {
+    if (this.matchEnded) {
+      return;
     }
-
-    const connectedAliveOwners = Array.from(aliveOwners).filter((ownerId) =>
-      connectedOwners.has(ownerId),
-    );
-    if (connectedAliveOwners.length <= 1 && !this.hasBroadcastMatchEnd) {
-      this.hasBroadcastMatchEnd = true;
-      this.broadcast("game:ended", {
-        winnerId: connectedAliveOwners[0] ?? "",
-        endStats: this.getEndStats(),
-      });
+    const connectedHumanOwners = new Set(this.clients.map((c) => c.sessionId));
+    if (connectedHumanOwners.size < 2) {
+      return;
     }
-  }
-
-  private getAliveOwners() {
-    const aliveOwners = new Set<string>();
-    for (const unit of this.state.units.values()) {
-      if (unit.owner !== PIRATE_OWNER_ID) {
-        aliveOwners.add(unit.owner);
-      }
-    }
+    const survivingOwners = new Set<string>();
     for (const base of this.state.bases.values()) {
-      if (base.owner !== PIRATE_OWNER_ID) {
-        aliveOwners.add(base.owner);
-      }
-    }
-    return aliveOwners;
-  }
-
-  private getBotOwners() {
-    return new Set(this.aiRoomIds.keys());
-  }
-
-  private updateAiPlayers() {
-    for (const ownerId of this.getBotOwners()) {
-      const base = this.getClosestBaseForOwner(ownerId, 0, 0);
-      if (!base) {
-        this.ensureBaseForClient(ownerId);
+      if (
+        base.owner === PIRATE_OWNER_ID ||
+        base.hp <= 0 ||
+        this.eliminatedOwners.has(base.owner)
+      ) {
         continue;
       }
-      const collectors = this.getAllUnitsForClient(ownerId).filter(
-        (unit) => unit.unitType === "RESOURCE_COLLECTOR",
-      );
-      const fighters = this.getAllUnitsForClient(ownerId).filter(
-        (unit) => unit.unitType === "FIGHTER",
-      );
-      if (collectors.length < 1 && base.resourceStock >= RESOURCE_COLLECTOR_COST) {
-        this.buildUnitForOwner(ownerId, base.id, "RESOURCE_COLLECTOR");
-      } else if (fighters.length < 4 && base.resourceStock >= FIGHTER_COST) {
-        this.buildUnitForOwner(ownerId, base.id, "FIGHTER");
-      }
-
-      const targetResource = this.getNearestResource(base.x, base.z);
-      if (targetResource) {
-        collectors.forEach((collector) => {
-          if (
-            collector.orderType !== "HARVEST" &&
-            collector.orderType !== "RETURN" &&
-            collector.dropoffWaitLeft <= 0 &&
-            collector.harvestWaitLeft <= 0
-          ) {
-            collector.orderType = "HARVEST";
-            collector.orderTargetId = targetResource.id;
-            collector.harvestTargetId = targetResource.id;
-            collector.orderX = targetResource.x;
-            collector.orderZ = targetResource.z;
-          }
-        });
-      }
-
-      const targetEnemy = this.getNearestEnemyBase(ownerId, base.x, base.z);
-      if (targetEnemy) {
-        fighters.forEach((fighter) => {
-          if (fighter.orderType === "ATTACK" && fighter.orderTargetId === targetEnemy.id) {
-            return;
-          }
-          fighter.orderType = "ATTACK";
-          fighter.orderTargetId = targetEnemy.id;
-          fighter.orderX = targetEnemy.x;
-          fighter.orderZ = targetEnemy.z;
-        });
-      }
+      survivingOwners.add(base.owner);
     }
-  }
-
-  private getEndStats() {
-    const ownerStats = new Map<
-      string,
-      { ownerId: string; playerName: string; units: number; bases: number; modules: number; resources: number }
-    >();
-    const ensureOwner = (ownerId: string) => {
-      const existing = ownerStats.get(ownerId);
-      if (existing) {
-        return existing;
-      }
-      const stat = {
-        ownerId,
-        playerName: this.getPlayerName(ownerId),
-        units: 0,
-        bases: 0,
-        modules: 0,
-        resources: 0,
-      };
-      ownerStats.set(ownerId, stat);
-      return stat;
-    };
-
-    for (const client of this.clients) {
-      ensureOwner(client.sessionId);
+    if (survivingOwners.size > 1) {
+      return;
     }
-    for (const ownerId of this.aiRoomIds.keys()) {
-      ensureOwner(ownerId);
-    }
-    for (const unit of this.state.units.values()) {
-      if (unit.owner === PIRATE_OWNER_ID) {
-        continue;
-      }
-      ensureOwner(unit.owner).units += 1;
-    }
-    for (const base of this.state.bases.values()) {
-      if (base.owner === PIRATE_OWNER_ID) {
-        continue;
-      }
-      const stat = ensureOwner(base.owner);
-      stat.bases += 1;
-      stat.resources += Math.max(0, base.resourceStock);
-    }
-    for (const module of this.state.modules.values()) {
-      if (module.owner === PIRATE_OWNER_ID) {
-        continue;
-      }
-      ensureOwner(module.owner).modules += 1;
-    }
-    return Array.from(ownerStats.values()).sort((a, b) => {
-      if (b.bases !== a.bases) return b.bases - a.bases;
-      if (b.units !== a.units) return b.units - a.units;
-      return b.resources - a.resources;
-    });
+    this.matchEnded = true;
+    const [winnerId] = Array.from(survivingOwners.values());
+    this.broadcast("game:ended", { winnerId: winnerId ?? null });
   }
 
   private advanceCollectorTimers(dt: number) {

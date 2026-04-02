@@ -336,6 +336,21 @@ export default function App() {
         }
       });
 
+      room.onMessage("game:ended", (payload) => {
+        const winnerId =
+          payload && typeof payload.winnerId === "string"
+            ? payload.winnerId
+            : null;
+        if (winnerId === room.sessionId) {
+          setStatus("Match ended ✅ You won.");
+        } else if (winnerId) {
+          setStatus("Match ended 🏁 Another player won.");
+        } else {
+          setStatus("Match ended 🏁 No winner.");
+        }
+        setView("lobby");
+      });
+
       room.onLeave((code) => {
         console.warn("[lobby] room left", { code });
         if (roomRef.current !== room) {
