@@ -98,6 +98,7 @@ export class LobbyPlayerSchema extends Schema {
   @type("string") id = "";
   @type("string") name = "";
   @type("boolean") ready = false;
+  @type("boolean") isBot = false;
 }
 
 export class LobbyRoomSchema extends Schema {

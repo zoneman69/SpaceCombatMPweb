@@ -95,6 +95,8 @@ const PIRATE_SPAWN_RADIUS = MAP_RESOURCE_RADIUS * 0.9;
 const PIRATE_PATROL_RADIUS = MAP_RESOURCE_RADIUS;
 const PIRATE_PATROL_ARRIVAL_RADIUS = 12;
 const COMMAND_FORMATION_SPACING = 7;
+const MAX_LOBBY_PLAYERS = 3;
+const AI_PLAYER_NAME_PREFIX = "AI Commander";
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -281,6 +283,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
   private pirateSquadIndex = 0;
   private readonly pirateUnitSquads = new Map<string, string>();
+  private readonly aiRoomIds = new Map<string, string>();
+  private aiPlayerIndex = 1;
 
   onCreate() {
     this.autoDispose = false;
@@ -436,6 +440,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         if (!room) {
           return;
         }
+        if (room.players.size >= MAX_LOBBY_PLAYERS) {
+          return;
+        }
         this.removePlayerFromLobbyRoom(client.sessionId);
         this.addPlayerToLobbyRoom(room, client.sessionId);
         console.log("[lobby] joinRoom complete", {
@@ -460,6 +467,39 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         player.ready = !player.ready;
         this.emitLobbyRooms();
       }
+    });
+
+    this.onMessage("lobby:addAiPlayer", (client) => {
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      if (!roomId) {
+        return;
+      }
+      const room = this.state.lobbyRooms.get(roomId);
+      if (!room || room.hostId !== client.sessionId) {
+        return;
+      }
+      if (room.players.size >= MAX_LOBBY_PLAYERS) {
+        return;
+      }
+      this.addAiPlayerToLobbyRoom(room);
+      this.emitLobbyRooms();
+    });
+
+    this.onMessage("lobby:removeAiPlayer", (client, payload: { playerId?: string }) => {
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      const playerId = payload?.playerId;
+      if (!roomId || !playerId) {
+        return;
+      }
+      const room = this.state.lobbyRooms.get(roomId);
+      if (!room || room.hostId !== client.sessionId) {
+        return;
+      }
+      if (!this.aiRoomIds.has(playerId) || this.aiRoomIds.get(playerId) !== room.id) {
+        return;
+      }
+      this.removeAiPlayer(playerId);
+      this.emitLobbyRooms();
     });
 
     this.ensureResourceNodes();
@@ -506,6 +546,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private cleanupPlayerState(sessionId: string) {
+    if (this.aiRoomIds.has(sessionId)) {
+      this.removeAiPlayer(sessionId);
+      this.emitLobbyRooms();
+      return;
+    }
     this.removePlayerFromLobbyRoom(sessionId);
     this.emitLobbyRooms();
     this.playerNames.delete(sessionId);
@@ -521,6 +566,27 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     }
     for (const [id, module] of this.state.modules.entries()) {
       if (module.owner === sessionId) {
+        this.state.modules.delete(id);
+      }
+    }
+  }
+
+  private removeAiPlayer(aiPlayerId: string) {
+    this.removePlayerFromLobbyRoom(aiPlayerId);
+    this.aiRoomIds.delete(aiPlayerId);
+    this.playerNames.delete(aiPlayerId);
+    for (const [id, unit] of this.state.units.entries()) {
+      if (unit.owner === aiPlayerId) {
+        this.state.units.delete(id);
+      }
+    }
+    for (const [id, base] of this.state.bases.entries()) {
+      if (base.owner === aiPlayerId) {
+        this.state.bases.delete(id);
+      }
+    }
+    for (const [id, module] of this.state.modules.entries()) {
+      if (module.owner === aiPlayerId) {
         this.state.modules.delete(id);
       }
     }
@@ -547,6 +613,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.ensureResourceNodes();
     this.updatePirateSpawns(dt);
     this.updatePiratePatrolOrders();
+    this.updateAiPlayers();
     this.advanceCollectorTimers(dt);
     simulate({
       units: this.state.units,
@@ -1131,13 +1198,97 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     return closest;
   }
 
+  private getNearestEnemyBase(ownerId: string, x: number, z: number) {
+    let closest: BaseSchema | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const base of this.state.bases.values()) {
+      if (base.owner === ownerId) {
+        continue;
+      }
+      const dist = Math.hypot(base.x - x, base.z - z);
+      if (dist < closestDistance) {
+        closest = base;
+        closestDistance = dist;
+      }
+    }
+    return closest;
+  }
+
+  private getNearestResource(x: number, z: number) {
+    let closest: ResourceNodeSchema | null = null;
+    let closestDistance = Number.POSITIVE_INFINITY;
+    for (const resource of this.state.resources.values()) {
+      if (resource.amount <= 0) {
+        continue;
+      }
+      const dist = Math.hypot(resource.x - x, resource.z - z);
+      if (dist < closestDistance) {
+        closest = resource;
+        closestDistance = dist;
+      }
+    }
+    return closest;
+  }
+
+  private buildUnitForOwner(ownerId: string, baseId: string, unitType: UnitSchema["unitType"]) {
+    const config = this.unitConfig[unitType];
+    const base = this.state.bases.get(baseId);
+    if (!config || !base || base.owner !== ownerId || base.resourceStock < config.cost) {
+      return null;
+    }
+    base.resourceStock -= config.cost;
+    const unit = new UnitSchema();
+    unit.id = nanoid();
+    unit.owner = ownerId;
+    unit.unitType = unitType;
+    unit.weaponType = "LASER";
+    unit.cargo = 0;
+    unit.cargoCapacity =
+      config.cargoCapacity +
+      (unitType === "RESOURCE_COLLECTOR"
+        ? Math.min(base.collectorStorageBonus, COLLECTOR_STORAGE_MAX_BONUS)
+        : 0);
+    unit.weaponMounts = config.weaponMounts;
+    unit.techMounts = config.techMounts;
+    unit.maxHp = 100;
+    unit.hp = unit.maxHp;
+    unit.shields = config.shieldCapacity;
+    unit.maxShields = config.shieldCapacity;
+    unit.speedBonus = 0;
+    unit.radarRangeBonus = 0;
+    unit.weaponDamageBonus = 0;
+    this.applyCurrentShipTechUpgrades(unit, base);
+    unit.x = base.x + 6;
+    unit.z = base.z + 6;
+    this.state.units.set(unit.id, unit);
+    return unit;
+  }
+
   private addPlayerToLobbyRoom(room: LobbyRoomSchema, sessionId: string) {
+    if (room.players.size >= MAX_LOBBY_PLAYERS) {
+      return;
+    }
     const player = new LobbyPlayerSchema();
     player.id = sessionId;
     player.name = this.getPlayerName(sessionId);
     player.ready = false;
+    player.isBot = false;
     room.players.set(sessionId, player);
     this.playerRoomIds.set(sessionId, room.id);
+  }
+
+  private addAiPlayerToLobbyRoom(room: LobbyRoomSchema) {
+    const aiPlayerId = `ai-player-${this.aiPlayerIndex}`;
+    this.aiPlayerIndex += 1;
+    const player = new LobbyPlayerSchema();
+    player.id = aiPlayerId;
+    player.name = `${AI_PLAYER_NAME_PREFIX} ${this.aiPlayerIndex - 1}`;
+    player.ready = true;
+    player.isBot = true;
+    room.players.set(aiPlayerId, player);
+    this.playerNames.set(aiPlayerId, player.name);
+    this.playerRoomIds.set(aiPlayerId, room.id);
+    this.aiRoomIds.set(aiPlayerId, room.id);
   }
 
   private ensureBaseForClient(sessionId: string) {
@@ -1207,7 +1358,8 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private ensureBasesForAllClients() {
-    if (this.clients.length === 0) {
+    const botOwners = this.getBotOwners();
+    if (this.clients.length === 0 && botOwners.size === 0) {
       return;
     }
     const owners = new Set<string>();
@@ -1220,6 +1372,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
       if (!owners.has(client.sessionId)) {
         this.ensureBaseForClient(client.sessionId);
+      }
+    });
+    botOwners.forEach((ownerId) => {
+      if (this.eliminatedOwners.has(ownerId)) {
+        return;
+      }
+      if (!owners.has(ownerId)) {
+        this.ensureBaseForClient(ownerId);
       }
     });
   }
@@ -1461,31 +1621,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       });
       return;
     }
-    base.resourceStock -= config.cost;
-    const unit = new UnitSchema();
-    unit.id = nanoid();
-    unit.owner = client.sessionId;
-    unit.unitType = unitType;
-    unit.weaponType = "LASER";
-    unit.cargo = 0;
-    unit.cargoCapacity =
-      config.cargoCapacity +
-      (unitType === "RESOURCE_COLLECTOR"
-        ? Math.min(base.collectorStorageBonus, COLLECTOR_STORAGE_MAX_BONUS)
-        : 0);
-    unit.weaponMounts = config.weaponMounts;
-    unit.techMounts = config.techMounts;
-    unit.maxHp = 100;
-    unit.hp = unit.maxHp;
-    unit.shields = config.shieldCapacity;
-    unit.maxShields = config.shieldCapacity;
-    unit.speedBonus = 0;
-    unit.radarRangeBonus = 0;
-    unit.weaponDamageBonus = 0;
-    this.applyCurrentShipTechUpgrades(unit, base);
-    unit.x = base.x + 6;
-    unit.z = base.z + 6;
-    this.state.units.set(unit.id, unit);
+    const unit = this.buildUnitForOwner(client.sessionId, base.id, unitType);
+    if (!unit) {
+      return;
+    }
     console.log("[lobby] build success", {
       sessionId: client.sessionId,
       unitId: unit.id,
@@ -2095,13 +2234,20 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       remainingPlayers: room.players.size,
     });
     if (room.players.size === 0) {
+      for (const [playerId, mappedRoomId] of this.aiRoomIds.entries()) {
+        if (mappedRoomId === roomId) {
+          this.aiRoomIds.delete(playerId);
+        }
+      }
       this.state.lobbyRooms.delete(roomId);
       return;
     }
     if (room.hostId === sessionId) {
-      const [nextHost] = Array.from(
-        room.players.values(),
-      ) as LobbyPlayerSchema[];
+      const nextHost =
+        (Array.from(room.players.values()) as LobbyPlayerSchema[]).find(
+          (player) => !player.isBot,
+        ) ??
+        (Array.from(room.players.values()) as LobbyPlayerSchema[])[0];
       if (nextHost) {
         room.hostId = nextHost.id;
         room.hostName = nextHost.name;
@@ -2124,6 +2270,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         id: player.id,
         name: player.name,
         ready: player.ready,
+        isBot: player.isBot,
       })),
     }));
     if (target) {

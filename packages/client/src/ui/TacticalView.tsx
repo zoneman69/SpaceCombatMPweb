@@ -55,6 +55,20 @@ type FiringEffect = {
   toId: string;
 };
 
+type EndStatsRow = {
+  ownerId: string;
+  playerName: string;
+  units: number;
+  bases: number;
+  modules: number;
+  resources: number;
+};
+
+type MatchSummary = {
+  winnerId: string;
+  endStats: EndStatsRow[];
+};
+
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
     const bonus = unit.radarRangeBonus ?? 0;
@@ -362,6 +376,7 @@ export default function TacticalView({
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const collectorAttachmentDebugRef = useRef<Map<string, string>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
+  const isSpectatorRef = useRef(false);
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
   const selectedModuleIdRef = useRef<string | null>(null);
@@ -457,6 +472,8 @@ export default function TacticalView({
   const [shouldAutoOpenLabAfterPurchase, setShouldAutoOpenLabAfterPurchase] =
     useState(false);
   const [isMobileControlsEnabled, setIsMobileControlsEnabled] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [matchSummary, setMatchSummary] = useState<MatchSummary | null>(null);
   const [mobileJoystickKnob, setMobileJoystickKnob] = useState({ x: 0, y: 0 });
   const mobileJoystickRef = useRef({
     pointerId: null as number | null,
@@ -484,6 +501,10 @@ export default function TacticalView({
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
   }, [localSessionId]);
+
+  useEffect(() => {
+    isSpectatorRef.current = isSpectator;
+  }, [isSpectator]);
 
   useEffect(() => {
     const query = window.matchMedia("(max-width: 900px) and (pointer: coarse)");
@@ -587,6 +608,24 @@ export default function TacticalView({
     if (!room) {
       return;
     }
+    setIsSpectator(false);
+    setMatchSummary(null);
+    room.onMessage("game:playerDefeated", (payload: { endStats?: EndStatsRow[] }) => {
+      setIsSpectator(true);
+      setMatchSummary({
+        winnerId: "",
+        endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+      });
+    });
+    room.onMessage(
+      "game:ended",
+      (payload: { winnerId?: string; endStats?: EndStatsRow[] }) => {
+        setMatchSummary({
+          winnerId: payload?.winnerId ?? "",
+          endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+        });
+      },
+    );
     room.send("lobby:ensureWorld");
     room.send("debug:dumpUnits");
   }, [room]);
@@ -1675,6 +1714,9 @@ export default function TacticalView({
     const cameraOffset = new THREE.Vector3();
     const fogSources: Array<{ x: number; z: number; radius: number }> = [];
     const isVisibleInFog = (x: number, z: number) => {
+      if (isSpectatorRef.current) {
+        return true;
+      }
       if (fogSources.length === 0) {
         return true;
       }
@@ -2985,6 +3027,16 @@ export default function TacticalView({
   const localResourceTotal = Array.from(basesRef.current?.values() ?? [])
     .filter((base) => base.owner === localSessionId)
     .reduce((total, base) => total + base.resourceStock, 0);
+  const localSummaryRow = matchSummary?.endStats.find(
+    (row) => row.ownerId === localSessionId,
+  );
+  const summaryTitle = matchSummary?.winnerId
+    ? matchSummary.winnerId === localSessionId
+      ? "Victory"
+      : "Match complete"
+    : isSpectator
+      ? "Defeat — spectator mode enabled"
+      : "Match summary";
 
   return (
     <div className="tactical-view">
@@ -4075,6 +4127,61 @@ export default function TacticalView({
                     Move a ship here to interact with this module.
                   </p>
                 )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {matchSummary
+        ? createPortal(
+            <div className="entity-modal-backdrop" role="presentation">
+              <div className="entity-modal match-summary-modal" role="dialog" aria-modal="true">
+                <div className="lab-modal-header">
+                  <div>
+                    <p className="mount-label">Endgame stats</p>
+                    <p className="mount-title">{summaryTitle}</p>
+                  </div>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setMatchSummary(null)}
+                  >
+                    Close
+                  </button>
+                </div>
+                {isSpectator ? (
+                  <p className="hud-copy">
+                    You can keep watching the match. Fog of war is disabled for spectators.
+                  </p>
+                ) : null}
+                {localSummaryRow ? (
+                  <p className="hud-copy">
+                    Your totals — Units: {localSummaryRow.units} · Bases:{" "}
+                    {localSummaryRow.bases} · Modules: {localSummaryRow.modules} ·
+                    Resources: {Math.floor(localSummaryRow.resources)}
+                  </p>
+                ) : null}
+                <div className="match-summary-table" role="table" aria-label="Match totals">
+                  <div className="match-summary-row match-summary-row--header" role="row">
+                    <span role="columnheader">Player</span>
+                    <span role="columnheader">Units</span>
+                    <span role="columnheader">Bases</span>
+                    <span role="columnheader">Modules</span>
+                    <span role="columnheader">Resources</span>
+                  </div>
+                  {matchSummary.endStats.map((row) => (
+                    <div className="match-summary-row" role="row" key={row.ownerId}>
+                      <span role="cell">
+                        {row.playerName}
+                        {row.ownerId === localSessionId ? " (You)" : ""}
+                      </span>
+                      <span role="cell">{row.units}</span>
+                      <span role="cell">{row.bases}</span>
+                      <span role="cell">{row.modules}</span>
+                      <span role="cell">{Math.floor(row.resources)}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>,
             document.body,

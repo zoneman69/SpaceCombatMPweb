@@ -11,6 +11,8 @@ const wrapAngle = (angle) => {
 const FIGHTER_VISION_RADIUS = 30;
 const COLLECTOR_VISION_RADIUS = 60;
 const BASE_VISION_RADIUS = 100;
+const RADAR_UPGRADE_VISION_STEP = 12;
+const PATROL_WANDER_RADIUS = 24;
 const BASE_WEAPON_STATS = {
     LASER: {
         weaponRange: 18,
@@ -73,11 +75,10 @@ const updateUnit = (unit, units, bases, stats, dt) => {
         unit.orderType === "HARVEST" ||
         unit.orderType === "RETURN" ||
         unit.orderType === "PATROL" ||
-        unit.orderType === "GUARD" ||
         unit.orderType === "RETURN_TO_BASE" ||
         unit.orderType === "RETURN_TO_GARAGE" ||
         unit.orderType === "RETURN_TO_REPAIR";
-    const canPursueAutoTarget = false;
+    const canPursueAutoTarget = unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL";
     let desiredX = unit.x;
     let desiredZ = unit.z;
     let shouldMove = false;
@@ -121,6 +122,21 @@ const updateUnit = (unit, units, bases, stats, dt) => {
             unit.tgt = "";
         }
     }
+    if (unit.orderType === "GUARD" && unit.orderTargetId) {
+        const guardedUnit = units.get(unit.orderTargetId);
+        if (!guardedUnit ||
+            guardedUnit.id === unit.id ||
+            guardedUnit.owner !== unit.owner) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+        }
+        else {
+            desiredX = guardedUnit.x;
+            desiredZ = guardedUnit.z;
+            const distToGuarded = distance(unit.x, unit.z, desiredX, desiredZ);
+            shouldMove = distToGuarded > Math.max(stats.arrivalRadius * 2, 8);
+        }
+    }
     if (hasMoveTarget && !(canPursueAutoTarget && autoTarget)) {
         desiredX = unit.orderX;
         desiredZ = unit.orderZ;
@@ -131,8 +147,12 @@ const updateUnit = (unit, units, bases, stats, dt) => {
             unit.z = desiredZ;
             unit.vx = 0;
             unit.vz = 0;
-            if (unit.orderType === "MOVE" ||
-                unit.orderType === "PATROL" ||
+            if (unit.orderType === "PATROL") {
+                const nextPoint = getRandomPatrolPoint(unit.x, unit.z);
+                unit.orderX = nextPoint.x;
+                unit.orderZ = nextPoint.z;
+            }
+            else if (unit.orderType === "MOVE" ||
                 unit.orderType === "RETURN_TO_BASE" ||
                 unit.orderType === "RETURN_TO_GARAGE" ||
                 unit.orderType === "RETURN_TO_REPAIR") {
@@ -203,6 +223,14 @@ const maybeFire = (unit, target, stats, distToTarget) => {
     }
 };
 const distance = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
+const getRandomPatrolPoint = (centerX, centerZ) => {
+    const angle = Math.random() * Math.PI * 2;
+    const radius = PATROL_WANDER_RADIUS * (0.35 + Math.random() * 0.65);
+    return {
+        x: centerX + Math.cos(angle) * radius,
+        z: centerZ + Math.sin(angle) * radius,
+    };
+};
 const isEnemy = (unit, target) => target.owner !== unit.owner;
 const isEnemyBase = (base, target) => target.owner !== base.owner;
 const findAutoTarget = (unit, units, bases, stats) => {
@@ -212,12 +240,15 @@ const findAutoTarget = (unit, units, bases, stats) => {
     }
     let closest = null;
     let closestDistance = 0;
+    const searchRange = unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL"
+        ? getUnitVisionRadius(unit)
+        : stats.weaponRange;
     for (const target of units.values()) {
         if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
             continue;
         }
         const dist = distance(unit.x, unit.z, target.x, target.z);
-        if (dist > stats.weaponRange) {
+        if (dist > searchRange) {
             continue;
         }
         if (!closest || dist < closestDistance) {
@@ -230,7 +261,7 @@ const findAutoTarget = (unit, units, bases, stats) => {
             continue;
         }
         const dist = distance(unit.x, unit.z, target.x, target.z);
-        if (dist > stats.weaponRange) {
+        if (dist > searchRange) {
             continue;
         }
         if (!closest || dist < closestDistance) {
@@ -245,6 +276,8 @@ const findAutoTarget = (unit, units, bases, stats) => {
 };
 const getUnitVisionRadius = (unit) => (unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS) +
     Math.max(0, unit.radarRangeBonus ?? 0);
+const getBaseVisionRadius = (base) => BASE_VISION_RADIUS +
+    Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP;
 const isUnitVisibleToOwner = (ownerId, target, units, bases) => {
     for (const source of units.values()) {
         if (source.owner !== ownerId || source.hp <= 0) {
@@ -259,7 +292,7 @@ const isUnitVisibleToOwner = (ownerId, target, units, bases) => {
         if (base.owner !== ownerId || base.hp <= 0) {
             continue;
         }
-        if (distance(base.x, base.z, target.x, target.z) <= BASE_VISION_RADIUS) {
+        if (distance(base.x, base.z, target.x, target.z) <= getBaseVisionRadius(base)) {
             return true;
         }
     }

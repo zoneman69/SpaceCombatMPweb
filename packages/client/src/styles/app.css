@@ -756,6 +756,37 @@ body.tactical-view-scroll-locked {
   padding: 16px;
 }
 
+.match-summary-modal {
+  width: min(700px, 100%);
+}
+
+.match-summary-table {
+  margin-top: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.match-summary-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.5fr) repeat(4, minmax(70px, 1fr));
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.match-summary-row:nth-child(odd) {
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.match-summary-row--header {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #93c5fd;
+  background: rgba(30, 64, 175, 0.35);
+}
+
 .game-shell {
   min-height: 100vh;
   display: grid;
