@@ -100,6 +100,10 @@ const AI_PLAYER_NAME_PREFIX = "AI Commander";
 const AI_DECISION_INTERVAL_SECONDS = 1.5;
 const AI_MAX_COLLECTORS = 3;
 const AI_MAX_FIGHTERS = 8;
+const FIGHTER_VISION_RADIUS = 30;
+const COLLECTOR_VISION_RADIUS = 60;
+const BASE_VISION_RADIUS = 100;
+const RADAR_UPGRADE_VISION_STEP = 12;
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -1351,7 +1355,10 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     let closest: BaseSchema | null = null;
     let closestDistance = Number.POSITIVE_INFINITY;
     for (const base of this.state.bases.values()) {
-      if (base.owner === ownerId) {
+      if (base.owner === ownerId || base.hp <= 0) {
+        continue;
+      }
+      if (!this.isPositionVisibleToOwner(ownerId, base.x, base.z)) {
         continue;
       }
       const dist = Math.hypot(base.x - x, base.z - z);
@@ -1361,6 +1368,41 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     }
     return closest;
+  }
+
+  private getUnitVisionRadius(unit: UnitSchema) {
+    const baseRadius =
+      unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS;
+    return baseRadius + Math.max(0, unit.radarRangeBonus ?? 0);
+  }
+
+  private getBaseVisionRadius(base: BaseSchema) {
+    return (
+      BASE_VISION_RADIUS +
+      Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP
+    );
+  }
+
+  private isPositionVisibleToOwner(ownerId: string, x: number, z: number) {
+    for (const unit of this.state.units.values()) {
+      if (unit.owner !== ownerId || unit.hp <= 0) {
+        continue;
+      }
+      const dist = Math.hypot(unit.x - x, unit.z - z);
+      if (dist <= this.getUnitVisionRadius(unit)) {
+        return true;
+      }
+    }
+    for (const base of this.state.bases.values()) {
+      if (base.owner !== ownerId || base.hp <= 0) {
+        continue;
+      }
+      const dist = Math.hypot(base.x - x, base.z - z);
+      if (dist <= this.getBaseVisionRadius(base)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   private getNearestResource(x: number, z: number) {
