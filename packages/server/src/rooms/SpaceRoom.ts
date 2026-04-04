@@ -1413,18 +1413,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private getNearestEnemyBase(ownerId: string, x: number, z: number) {
     let closestVisible: BaseSchema | null = null;
     let closestVisibleDistance = Number.POSITIVE_INFINITY;
-    let closestAny: BaseSchema | null = null;
-    let closestAnyDistance = Number.POSITIVE_INFINITY;
 
     for (const base of this.state.bases.values()) {
       if (base.owner === ownerId || base.hp <= 0) {
         continue;
       }
       const dist = Math.hypot(base.x - x, base.z - z);
-      if (dist < closestAnyDistance) {
-        closestAny = base;
-        closestAnyDistance = dist;
-      }
       if (!this.isPositionVisibleToOwner(ownerId, base.x, base.z)) {
         continue;
       }
@@ -1434,7 +1428,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     }
 
-    return closestVisible ?? closestAny;
+    return closestVisible;
   }
 
   private getUnitVisionRadius(unit: UnitSchema) {
