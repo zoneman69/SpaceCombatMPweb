@@ -630,6 +630,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.processResearch(dt);
   }
 
+  private updateAiPlayers() {
+    // Placeholder AI tick hook.
+    // AI lobby players should not crash the room tick even when no tactical AI
+    // behavior has been implemented yet.
+  }
+
   private removeDestroyedUnits() {
     const destroyedIds = new Set<string>();
     for (const [id, unit] of this.state.units.entries()) {
