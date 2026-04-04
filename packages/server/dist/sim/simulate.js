@@ -50,19 +50,19 @@ const BASE_WEAPON_STATS = {
         weaponDamage: 16,
     },
 };
-export const simulate = ({ units, bases, modules, getStats, dt }) => {
+export const simulate = ({ units, bases, modules, getStats, dt, onEntityDestroyed, }) => {
     const unitList = Array.from(units.values());
     for (const unit of unitList) {
         const stats = getStats(unit);
-        updateUnit(unit, units, bases, stats, dt);
+        updateUnit(unit, units, bases, stats, dt, onEntityDestroyed);
     }
     const baseList = Array.from(bases.values());
     for (const base of baseList) {
-        updateBase(base, units, bases, modules, dt);
+        updateBase(base, units, bases, modules, dt, onEntityDestroyed);
     }
     resolveUnitCollisions(unitList);
 };
-const updateUnit = (unit, units, bases, stats, dt) => {
+const updateUnit = (unit, units, bases, stats, dt, onEntityDestroyed) => {
     if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
         unit.vx = 0;
         unit.vz = 0;
@@ -96,7 +96,7 @@ const updateUnit = (unit, units, bases, stats, dt) => {
                 const distToTarget = distance(unit.x, unit.z, target.x, target.z);
                 shouldMove = distToTarget > stats.weaponRange * 0.85;
                 unit.tgt = target.id;
-                maybeFire(unit, target, stats, distToTarget);
+                maybeFire(unit, target, stats, distToTarget, onEntityDestroyed);
             }
         }
         else {
@@ -110,7 +110,7 @@ const updateUnit = (unit, units, bases, stats, dt) => {
         autoTarget = findAutoTarget(unit, units, bases, stats);
         if (autoTarget) {
             unit.tgt = autoTarget.target.id;
-            maybeFire(unit, autoTarget.target, stats, autoTarget.distance);
+            maybeFire(unit, autoTarget.target, stats, autoTarget.distance, onEntityDestroyed);
             if (canPursueAutoTarget) {
                 desiredX = autoTarget.target.x;
                 desiredZ = autoTarget.target.z;
@@ -199,7 +199,7 @@ const applyDamping = (unit, stats, dt) => {
     unit.vx *= damp;
     unit.vz *= damp;
 };
-const maybeFire = (unit, target, stats, distToTarget) => {
+const maybeFire = (unit, target, stats, distToTarget, onEntityDestroyed) => {
     const weaponMounts = Math.max(0, unit.weaponMounts ?? 0);
     if (weaponMounts <= 0) {
         return;
@@ -218,7 +218,16 @@ const maybeFire = (unit, target, stats, distToTarget) => {
         remainingDamage -= absorbed;
     }
     if (remainingDamage > 0) {
+        const hpBeforeDamage = target.hp;
         target.hp = Math.max(0, target.hp - remainingDamage);
+        if (hpBeforeDamage > 0 && target.hp === 0) {
+            onEntityDestroyed?.({
+                attackerOwnerId: unit.owner,
+                defenderOwnerId: target.owner,
+                entityType: "unitType" in target ? "UNIT" : "BASE",
+                entityId: target.id,
+            });
+        }
     }
 };
 const distance = (ax, az, bx, bz) => Math.hypot(ax - bx, az - bz);
@@ -303,7 +312,7 @@ const isTargetVisibleToOwner = (ownerId, target, units, bases) => {
     }
     return false;
 };
-const updateBase = (base, units, bases, modules, dt) => {
+const updateBase = (base, units, bases, modules, dt, onEntityDestroyed) => {
     const baseWeaponStats = BASE_WEAPON_STATS.LASER;
     if (base.weaponCooldownLeft > 0) {
         base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
@@ -313,7 +322,7 @@ const updateBase = (base, units, bases, modules, dt) => {
         const closest = findClosestBaseTarget(base, base.x, base.z, units, bases, baseWeaponStats);
         if (closest) {
             base.weaponCooldownLeft = baseWeaponStats.weaponCooldown;
-            applyDamage(closest.target, baseWeaponStats.weaponDamage * baseWeaponMounts);
+            applyDamage(closest.target, baseWeaponStats.weaponDamage * baseWeaponMounts, base.owner, onEntityDestroyed);
         }
     }
     for (const module of modules.values()) {
@@ -334,7 +343,7 @@ const updateBase = (base, units, bases, modules, dt) => {
             continue;
         }
         module.weaponCooldownLeft = stats.weaponCooldown;
-        applyDamage(closest.target, stats.weaponDamage);
+        applyDamage(closest.target, stats.weaponDamage, base.owner, onEntityDestroyed);
     }
 };
 const findClosestBaseTarget = (base, sourceX, sourceZ, units, bases, stats) => {
@@ -371,7 +380,7 @@ const findClosestBaseTarget = (base, sourceX, sourceZ, units, bases, stats) => {
     }
     return { target: closest, distance: closestDistance };
 };
-const applyDamage = (target, damage) => {
+const applyDamage = (target, damage, attackerOwnerId, onEntityDestroyed) => {
     let remainingDamage = Math.max(0, damage);
     if (remainingDamage <= 0) {
         return;
@@ -382,7 +391,16 @@ const applyDamage = (target, damage) => {
         remainingDamage -= absorbed;
     }
     if (remainingDamage > 0) {
+        const hpBeforeDamage = target.hp;
         target.hp = Math.max(0, target.hp - remainingDamage);
+        if (hpBeforeDamage > 0 && target.hp === 0) {
+            onEntityDestroyed?.({
+                attackerOwnerId,
+                defenderOwnerId: target.owner,
+                entityType: "unitType" in target ? "UNIT" : "BASE",
+                entityId: target.id,
+            });
+        }
     }
 };
 const UNIT_COLLISION_RADIUS = 2.6;
