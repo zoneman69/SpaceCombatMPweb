@@ -552,7 +552,7 @@ export default function App() {
                   <div className="room-meta">
                     <span>Players</span>
                     <strong>
-                      {room.players.length} / 3
+                      {room.players.length} / 4
                     </strong>
                   </div>
                   <div className="room-actions">
@@ -594,7 +594,7 @@ export default function App() {
                     className="btn"
                     type="button"
                     onClick={addAiPlayer}
-                    disabled={activeRoom.players.length >= 3}
+                    disabled={activeRoom.players.length >= 4}
                   >
                     Add AI player
                   </button>
