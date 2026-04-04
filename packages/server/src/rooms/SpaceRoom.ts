@@ -477,6 +477,27 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
     });
 
+    this.onMessage(
+      "lobby:setReady",
+      (client, payload: { ready?: boolean }) => {
+        const ready = payload?.ready;
+        if (typeof ready !== "boolean") {
+          return;
+        }
+        const roomId = this.playerRoomIds.get(client.sessionId);
+        if (!roomId) {
+          return;
+        }
+        const room = this.state.lobbyRooms.get(roomId);
+        const player = room?.players.get(client.sessionId);
+        if (!player || player.ready === ready) {
+          return;
+        }
+        player.ready = ready;
+        this.emitLobbyRooms();
+      },
+    );
+
     this.onMessage("lobby:addAiPlayer", (client) => {
       const roomId = this.playerRoomIds.get(client.sessionId);
       if (!roomId) {

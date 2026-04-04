@@ -454,13 +454,18 @@ export default function App() {
     roomRef.current?.send("lobby:removeAiPlayer", { playerId });
   };
 
+  const returnToLobby = () => {
+    roomRef.current?.send("lobby:setReady", { ready: false });
+    setView("lobby");
+  };
+
   if (view === "game") {
     return (
       <div className="game-shell game-shell--tactical">
         <TacticalView
           room={room}
           localSessionId={localSessionId}
-          onExit={() => setView("lobby")}
+          onExit={returnToLobby}
         />
       </div>
     );
