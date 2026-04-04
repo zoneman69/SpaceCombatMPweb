@@ -59,9 +59,11 @@ const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
 const RESEARCH_PREREQ_BASE_MODULE = "RESEARCH_LAB";
-const REPAIR_BAY_RANGE = 5;
+const REPAIR_BAY_SUPPORT_RANGE = 18;
 const REPAIR_HULL_RATE = 18;
 const REPAIR_SHIELD_RATE = 26;
+const REPAIR_BASE_HULL_RATE = 12;
+const PASSIVE_SHIELD_REGEN_RATE = 4;
 const WEAPON_TURRET_RING_COUNT = 8;
 const WEAPON_TURRET_RING_RADIUS = 18;
 const BASE_MODULE_RING_RADIUS = 13;
@@ -654,6 +656,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
+    this.processPassiveShieldRegeneration(dt);
     this.maybeEndMatch();
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
@@ -2142,16 +2145,26 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   }
 
   private processRepairBays(dt: number) {
-    for (const module of this.state.modules.values()) {
-      if (module.moduleType !== "REPAIR_BAY" || !module.active) {
+    for (const base of this.state.bases.values()) {
+      if (base.hp <= 0) {
         continue;
       }
+      const repairBay = this.findModuleByType(base.id, "REPAIR_BAY");
+      if (!repairBay?.active) {
+        continue;
+      }
+      if (base.hp < BASE_STARTING_HULL) {
+        base.hp = Math.min(
+          BASE_STARTING_HULL,
+          base.hp + REPAIR_BASE_HULL_RATE * dt,
+        );
+      }
       for (const unit of this.state.units.values()) {
-        if (unit.owner !== module.owner) {
+        if (unit.owner !== base.owner) {
           continue;
         }
-        const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
-        if (dist > REPAIR_BAY_RANGE) {
+        const dist = Math.hypot(base.x - unit.x, base.z - unit.z);
+        if (dist > REPAIR_BAY_SUPPORT_RANGE) {
           continue;
         }
         if (unit.hp < unit.maxHp) {
@@ -2164,6 +2177,28 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
           );
         }
       }
+    }
+  }
+
+  private processPassiveShieldRegeneration(dt: number) {
+    for (const unit of this.state.units.values()) {
+      if (unit.hp <= 0 || unit.shields >= unit.maxShields) {
+        continue;
+      }
+      unit.shields = Math.min(
+        unit.maxShields,
+        unit.shields + PASSIVE_SHIELD_REGEN_RATE * dt,
+      );
+    }
+
+    for (const base of this.state.bases.values()) {
+      if (base.hp <= 0 || base.shields >= base.maxShields) {
+        continue;
+      }
+      base.shields = Math.min(
+        base.maxShields,
+        base.shields + PASSIVE_SHIELD_REGEN_RATE * dt,
+      );
     }
   }
 
