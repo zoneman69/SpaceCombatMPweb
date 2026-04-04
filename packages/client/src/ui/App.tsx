@@ -351,6 +351,23 @@ export default function App() {
         setView("lobby");
       });
 
+      room.onMessage("game:restarted", () => {
+        setStatus("Match restarted ✅");
+        setCountdown(null);
+        setView("lobby");
+      });
+
+      room.onMessage("lobby:roomRemoved", (payload) => {
+        const removedRoomId =
+          payload && typeof payload.roomId === "string" ? payload.roomId : null;
+        if (removedRoomId && removedRoomId === activeRoomIdRef.current) {
+          setActiveRoomId(null);
+          setCountdown(null);
+          setView("lobby");
+          setStatus("Room removed ✅");
+        }
+      });
+
       room.onLeave((code) => {
         console.warn("[lobby] room left", { code });
         if (roomRef.current !== room) {
@@ -452,6 +469,14 @@ export default function App() {
 
   const removeAiPlayer = (playerId: string) => {
     roomRef.current?.send("lobby:removeAiPlayer", { playerId });
+  };
+
+  const restartGame = () => {
+    roomRef.current?.send("lobby:restartGame");
+  };
+
+  const removeRoom = () => {
+    roomRef.current?.send("lobby:removeRoom");
   };
 
   const returnToLobby = () => {
@@ -597,6 +622,12 @@ export default function App() {
                     disabled={activeRoom.players.length >= 4}
                   >
                     Add AI player
+                  </button>
+                  <button className="btn" type="button" onClick={restartGame}>
+                    Restart game
+                  </button>
+                  <button className="btn" type="button" onClick={removeRoom}>
+                    Remove room
                   </button>
                 </div>
               )}

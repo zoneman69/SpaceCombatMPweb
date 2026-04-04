@@ -45,9 +45,12 @@ const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
 const RESEARCH_PREREQ_BASE_MODULE = "RESEARCH_LAB";
-const REPAIR_BAY_RANGE = 5;
+const REPAIR_BAY_SUPPORT_RANGE = 18;
+const REPAIR_BAY_MODULE_RANGE = 5;
 const REPAIR_HULL_RATE = 18;
 const REPAIR_SHIELD_RATE = 26;
+const REPAIR_BASE_HULL_RATE = 12;
+const PASSIVE_SHIELD_REGEN_RATE = 4;
 const WEAPON_TURRET_RING_COUNT = 8;
 const WEAPON_TURRET_RING_RADIUS = 18;
 const BASE_MODULE_RING_RADIUS = 13;
@@ -80,8 +83,15 @@ const PIRATE_SPAWN_RADIUS = MAP_RESOURCE_RADIUS * 0.9;
 const PIRATE_PATROL_RADIUS = MAP_RESOURCE_RADIUS;
 const PIRATE_PATROL_ARRIVAL_RADIUS = 12;
 const COMMAND_FORMATION_SPACING = 7;
-const MAX_LOBBY_PLAYERS = 3;
+const MAX_LOBBY_PLAYERS = 4;
 const AI_PLAYER_NAME_PREFIX = "AI Commander";
+const AI_DECISION_INTERVAL_SECONDS = 1.5;
+const AI_MAX_COLLECTORS = 3;
+const AI_MAX_FIGHTERS = 8;
+const FIGHTER_VISION_RADIUS = 30;
+const COLLECTOR_VISION_RADIUS = 60;
+const BASE_VISION_RADIUS = 100;
+const RADAR_UPGRADE_VISION_STEP = 12;
 const UNIT_CONFIG = {
     RESOURCE_COLLECTOR: {
         cost: RESOURCE_COLLECTOR_COST,
@@ -226,11 +236,12 @@ export class SpaceRoom extends Colyseus.Room {
         this.baseDropoffLocks = new Map();
         this.baseSpawnIndex = 0;
         this.eliminatedOwners = new Set();
-        this.hasBroadcastMatchEnd = false;
+        this.matchEnded = false;
         this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
         this.pirateSquadIndex = 0;
         this.pirateUnitSquads = new Map();
         this.aiRoomIds = new Map();
+        this.aiDecisionCooldownSeconds = new Map();
         this.aiPlayerIndex = 1;
     }
     onCreate() {
@@ -362,6 +373,23 @@ export class SpaceRoom extends Colyseus.Room {
                 this.emitLobbyRooms();
             }
         });
+        this.onMessage("lobby:setReady", (client, payload) => {
+            const ready = payload?.ready;
+            if (typeof ready !== "boolean") {
+                return;
+            }
+            const roomId = this.playerRoomIds.get(client.sessionId);
+            if (!roomId) {
+                return;
+            }
+            const room = this.state.lobbyRooms.get(roomId);
+            const player = room?.players.get(client.sessionId);
+            if (!player || player.ready === ready) {
+                return;
+            }
+            player.ready = ready;
+            this.emitLobbyRooms();
+        });
         this.onMessage("lobby:addAiPlayer", (client) => {
             const roomId = this.playerRoomIds.get(client.sessionId);
             if (!roomId) {
@@ -392,6 +420,38 @@ export class SpaceRoom extends Colyseus.Room {
             }
             this.removeAiPlayer(playerId);
             this.emitLobbyRooms();
+        });
+        this.onMessage("lobby:removeRoom", (client) => {
+            const roomId = this.playerRoomIds.get(client.sessionId);
+            if (!roomId) {
+                return;
+            }
+            const room = this.state.lobbyRooms.get(roomId);
+            if (!room || room.hostId !== client.sessionId) {
+                return;
+            }
+            const participantIds = Array.from(room.players.keys());
+            participantIds.forEach((playerId) => {
+                if (this.aiRoomIds.has(playerId)) {
+                    this.removeAiPlayer(playerId);
+                    return;
+                }
+                this.playerRoomIds.delete(playerId);
+            });
+            this.state.lobbyRooms.delete(roomId);
+            this.emitLobbyRooms();
+            this.broadcast("lobby:roomRemoved", { roomId });
+        });
+        this.onMessage("lobby:restartGame", (client) => {
+            const roomId = this.playerRoomIds.get(client.sessionId);
+            if (!roomId) {
+                return;
+            }
+            const room = this.state.lobbyRooms.get(roomId);
+            if (!room || room.hostId !== client.sessionId) {
+                return;
+            }
+            this.restartMatch();
         });
         this.ensureResourceNodes();
         this.spawnPirateSquadsIfNeeded();
@@ -460,6 +520,7 @@ export class SpaceRoom extends Colyseus.Room {
     removeAiPlayer(aiPlayerId) {
         this.removePlayerFromLobbyRoom(aiPlayerId);
         this.aiRoomIds.delete(aiPlayerId);
+        this.aiDecisionCooldownSeconds.delete(aiPlayerId);
         this.playerNames.delete(aiPlayerId);
         for (const [id, unit] of this.state.units.entries()) {
             if (unit.owner === aiPlayerId) {
@@ -488,12 +549,15 @@ export class SpaceRoom extends Colyseus.Room {
         };
     }
     tick(dtMs) {
+        if (this.matchEnded) {
+            return;
+        }
         const dt = dtMs / 1000;
         this.ensureBasesForAllClients();
         this.ensureResourceNodes();
         this.updatePirateSpawns(dt);
         this.updatePiratePatrolOrders();
-        this.updateAiPlayers();
+        this.updateAiPlayers(dt);
         this.advanceCollectorTimers(dt);
         simulate({
             units: this.state.units,
@@ -504,10 +568,100 @@ export class SpaceRoom extends Colyseus.Room {
         });
         this.removeDestroyedUnits();
         this.removeDestroyedBases();
-        this.updateDefeatedPlayersAndMatchState();
+        this.processPassiveShieldRegeneration(dt);
+        this.maybeEndMatch();
         this.processCollectorHarvesting();
         this.processRepairBays(dt);
         this.processResearch(dt);
+    }
+    updateAiPlayers(dt) {
+        for (const ownerId of this.aiRoomIds.keys()) {
+            if (this.eliminatedOwners.has(ownerId)) {
+                continue;
+            }
+            const base = this.getPrimaryBaseForOwner(ownerId);
+            if (!base) {
+                continue;
+            }
+            const decisionCooldown = this.aiDecisionCooldownSeconds.get(ownerId) ?? 0;
+            const nextCooldown = decisionCooldown - dt;
+            if (nextCooldown > 0) {
+                this.aiDecisionCooldownSeconds.set(ownerId, nextCooldown);
+                continue;
+            }
+            this.aiDecisionCooldownSeconds.set(ownerId, AI_DECISION_INTERVAL_SECONDS);
+            const ownedUnits = this.getAllUnitsForClient(ownerId);
+            const collectors = ownedUnits.filter((unit) => unit.unitType === "RESOURCE_COLLECTOR");
+            const fighters = ownedUnits.filter((unit) => unit.unitType === "FIGHTER");
+            if (collectors.length < AI_MAX_COLLECTORS) {
+                const spawnedCollector = this.buildUnitForOwner(ownerId, base.id, "RESOURCE_COLLECTOR");
+                if (spawnedCollector) {
+                    this.assignCollectorAiOrder(spawnedCollector);
+                }
+            }
+            else if (fighters.length < AI_MAX_FIGHTERS) {
+                const spawnedFighter = this.buildUnitForOwner(ownerId, base.id, "FIGHTER");
+                if (spawnedFighter) {
+                    this.assignFighterAiOrder(spawnedFighter);
+                }
+            }
+            collectors.forEach((collector) => this.assignCollectorAiOrder(collector));
+            fighters.forEach((fighter) => this.assignFighterAiOrder(fighter));
+        }
+    }
+    getPrimaryBaseForOwner(ownerId) {
+        for (const base of this.state.bases.values()) {
+            if (base.owner === ownerId) {
+                return base;
+            }
+        }
+        return null;
+    }
+    assignCollectorAiOrder(unit) {
+        if (unit.cargo >= unit.cargoCapacity) {
+            this.sendCollectorToBase(unit);
+            return;
+        }
+        const currentHarvestTarget = unit.harvestTargetId
+            ? this.state.resources.get(unit.harvestTargetId)
+            : null;
+        if (unit.orderType === "HARVEST" &&
+            currentHarvestTarget &&
+            currentHarvestTarget.amount > 0) {
+            return;
+        }
+        const resource = this.getNearestResource(unit.x, unit.z);
+        if (!resource) {
+            unit.orderType = "STOP";
+            unit.orderTargetId = "";
+            return;
+        }
+        unit.orderType = "HARVEST";
+        unit.orderTargetId = resource.id;
+        unit.harvestTargetId = resource.id;
+        unit.orderX = resource.x;
+        unit.orderZ = resource.z;
+    }
+    assignFighterAiOrder(unit) {
+        if (unit.orderType === "ATTACK" && unit.orderTargetId) {
+            const targetExists = this.state.units.has(unit.orderTargetId) ||
+                this.state.bases.has(unit.orderTargetId);
+            if (targetExists) {
+                return;
+            }
+        }
+        const enemyBase = this.getNearestEnemyBase(unit.owner, unit.x, unit.z);
+        if (!enemyBase) {
+            unit.orderType = "AGGRESSIVE";
+            unit.orderTargetId = "";
+            unit.orderX = unit.x;
+            unit.orderZ = unit.z;
+            return;
+        }
+        unit.orderType = "ATTACK_MOVE";
+        unit.orderTargetId = "";
+        unit.orderX = enemyBase.x;
+        unit.orderZ = enemyBase.z;
     }
     removeDestroyedUnits() {
         const destroyedIds = new Set();
@@ -531,9 +685,11 @@ export class SpaceRoom extends Colyseus.Room {
     }
     removeDestroyedBases() {
         const destroyedIds = new Set();
+        const destroyedOwners = new Set();
         for (const [id, base] of this.state.bases.entries()) {
             if (base.hp <= 0) {
                 destroyedIds.add(id);
+                destroyedOwners.add(base.owner);
             }
         }
         if (destroyedIds.size === 0) {
@@ -548,148 +704,89 @@ export class SpaceRoom extends Colyseus.Room {
                 }
             }
         }
-    }
-    updateDefeatedPlayersAndMatchState() {
-        const connectedOwners = new Set([
-            ...this.clients.map((client) => client.sessionId),
-            ...this.aiRoomIds.keys(),
-        ]);
-        const aliveOwners = this.getAliveOwners();
-        for (const ownerId of connectedOwners) {
-            if (this.eliminatedOwners.has(ownerId)) {
+        for (const ownerId of destroyedOwners) {
+            const hasRemainingBase = Array.from(this.state.bases.values()).some((base) => base.owner === ownerId && base.hp > 0);
+            if (hasRemainingBase) {
                 continue;
             }
-            if (aliveOwners.has(ownerId)) {
-                continue;
-            }
-            this.eliminatedOwners.add(ownerId);
-            this.broadcast("game:playerDefeated", {
-                ownerId,
-                playersRemaining: aliveOwners.size,
-                endStats: this.getEndStats(),
-            });
-        }
-        const connectedAliveOwners = Array.from(aliveOwners).filter((ownerId) => connectedOwners.has(ownerId));
-        if (connectedAliveOwners.length <= 1 && !this.hasBroadcastMatchEnd) {
-            this.hasBroadcastMatchEnd = true;
-            this.broadcast("game:ended", {
-                winnerId: connectedAliveOwners[0] ?? "",
-                endStats: this.getEndStats(),
-            });
+            this.eliminateOwner(ownerId);
         }
     }
-    getAliveOwners() {
-        const aliveOwners = new Set();
-        for (const unit of this.state.units.values()) {
-            if (unit.owner !== PIRATE_OWNER_ID) {
-                aliveOwners.add(unit.owner);
+    eliminateOwner(ownerId) {
+        this.eliminatedOwners.add(ownerId);
+        for (const [id, unit] of this.state.units.entries()) {
+            if (unit.owner === ownerId) {
+                this.state.units.delete(id);
+                this.pirateUnitSquads.delete(id);
             }
         }
+        for (const [id, module] of this.state.modules.entries()) {
+            if (module.owner === ownerId) {
+                this.state.modules.delete(id);
+            }
+        }
+        for (const [baseId, lockedBy] of this.baseDropoffLocks.entries()) {
+            const unit = this.state.units.get(lockedBy);
+            if (!unit || unit.owner === ownerId) {
+                this.baseDropoffLocks.delete(baseId);
+            }
+        }
+    }
+    maybeEndMatch() {
+        if (this.matchEnded) {
+            return;
+        }
+        const survivingOwners = new Set();
+        const contenderOwners = new Set();
         for (const base of this.state.bases.values()) {
-            if (base.owner !== PIRATE_OWNER_ID) {
-                aliveOwners.add(base.owner);
+            if (base.owner === PIRATE_OWNER_ID ||
+                base.hp <= 0) {
+                continue;
             }
+            contenderOwners.add(base.owner);
+            if (this.eliminatedOwners.has(base.owner)) {
+                continue;
+            }
+            survivingOwners.add(base.owner);
         }
-        return aliveOwners;
+        for (const ownerId of this.eliminatedOwners) {
+            if (ownerId === PIRATE_OWNER_ID) {
+                continue;
+            }
+            contenderOwners.add(ownerId);
+        }
+        if (contenderOwners.size < 2) {
+            return;
+        }
+        if (survivingOwners.size > 1) {
+            return;
+        }
+        this.matchEnded = true;
+        this.resetLobbyReadiness();
+        const [winnerId] = Array.from(survivingOwners.values());
+        const report = Array.from(contenderOwners.values()).map((ownerId) => ({
+            ownerId,
+            eliminated: this.eliminatedOwners.has(ownerId),
+            basesRemaining: Array.from(this.state.bases.values()).filter((base) => base.owner === ownerId && base.hp > 0).length,
+            unitsRemaining: Array.from(this.state.units.values()).filter((unit) => unit.owner === ownerId && unit.hp > 0).length,
+            modulesRemaining: Array.from(this.state.modules.values()).filter((module) => module.owner === ownerId).length,
+        }));
+        this.broadcast("game:ended", { winnerId: winnerId ?? null, report });
     }
-    getBotOwners() {
-        return new Set(this.aiRoomIds.keys());
-    }
-    updateAiPlayers() {
-        for (const ownerId of this.getBotOwners()) {
-            const base = this.getClosestBaseForOwner(ownerId, 0, 0);
-            if (!base) {
-                this.ensureBaseForClient(ownerId);
-                continue;
-            }
-            const collectors = this.getAllUnitsForClient(ownerId).filter((unit) => unit.unitType === "RESOURCE_COLLECTOR");
-            const fighters = this.getAllUnitsForClient(ownerId).filter((unit) => unit.unitType === "FIGHTER");
-            if (collectors.length < 1 && base.resourceStock >= RESOURCE_COLLECTOR_COST) {
-                this.buildUnitForOwner(ownerId, base.id, "RESOURCE_COLLECTOR");
-            }
-            else if (fighters.length < 4 && base.resourceStock >= FIGHTER_COST) {
-                this.buildUnitForOwner(ownerId, base.id, "FIGHTER");
-            }
-            const targetResource = this.getNearestResource(base.x, base.z);
-            if (targetResource) {
-                collectors.forEach((collector) => {
-                    if (collector.orderType !== "HARVEST" &&
-                        collector.orderType !== "RETURN" &&
-                        collector.dropoffWaitLeft <= 0 &&
-                        collector.harvestWaitLeft <= 0) {
-                        collector.orderType = "HARVEST";
-                        collector.orderTargetId = targetResource.id;
-                        collector.harvestTargetId = targetResource.id;
-                        collector.orderX = targetResource.x;
-                        collector.orderZ = targetResource.z;
-                    }
-                });
-            }
-            const targetEnemy = this.getNearestEnemyBase(ownerId, base.x, base.z);
-            if (targetEnemy) {
-                fighters.forEach((fighter) => {
-                    if (fighter.orderType === "ATTACK" && fighter.orderTargetId === targetEnemy.id) {
-                        return;
-                    }
-                    fighter.orderType = "ATTACK";
-                    fighter.orderTargetId = targetEnemy.id;
-                    fighter.orderX = targetEnemy.x;
-                    fighter.orderZ = targetEnemy.z;
-                });
+    resetLobbyReadiness() {
+        let changed = false;
+        for (const room of this.state.lobbyRooms.values()) {
+            for (const player of room.players.values()) {
+                if (!player.ready) {
+                    continue;
+                }
+                player.ready = false;
+                changed = true;
             }
         }
-    }
-    getEndStats() {
-        const ownerStats = new Map();
-        const ensureOwner = (ownerId) => {
-            const existing = ownerStats.get(ownerId);
-            if (existing) {
-                return existing;
-            }
-            const stat = {
-                ownerId,
-                playerName: this.getPlayerName(ownerId),
-                units: 0,
-                bases: 0,
-                modules: 0,
-                resources: 0,
-            };
-            ownerStats.set(ownerId, stat);
-            return stat;
-        };
-        for (const client of this.clients) {
-            ensureOwner(client.sessionId);
+        if (changed) {
+            this.emitLobbyRooms();
         }
-        for (const ownerId of this.aiRoomIds.keys()) {
-            ensureOwner(ownerId);
-        }
-        for (const unit of this.state.units.values()) {
-            if (unit.owner === PIRATE_OWNER_ID) {
-                continue;
-            }
-            ensureOwner(unit.owner).units += 1;
-        }
-        for (const base of this.state.bases.values()) {
-            if (base.owner === PIRATE_OWNER_ID) {
-                continue;
-            }
-            const stat = ensureOwner(base.owner);
-            stat.bases += 1;
-            stat.resources += Math.max(0, base.resourceStock);
-        }
-        for (const module of this.state.modules.values()) {
-            if (module.owner === PIRATE_OWNER_ID) {
-                continue;
-            }
-            ensureOwner(module.owner).modules += 1;
-        }
-        return Array.from(ownerStats.values()).sort((a, b) => {
-            if (b.bases !== a.bases)
-                return b.bases - a.bases;
-            if (b.units !== a.units)
-                return b.units - a.units;
-            return b.resources - a.resources;
-        });
     }
     advanceCollectorTimers(dt) {
         for (const unit of this.state.units.values()) {
@@ -1114,19 +1211,57 @@ export class SpaceRoom extends Colyseus.Room {
         return closest;
     }
     getNearestEnemyBase(ownerId, x, z) {
-        let closest = null;
-        let closestDistance = Number.POSITIVE_INFINITY;
+        let closestVisible = null;
+        let closestVisibleDistance = Number.POSITIVE_INFINITY;
+        let closestAny = null;
+        let closestAnyDistance = Number.POSITIVE_INFINITY;
         for (const base of this.state.bases.values()) {
-            if (base.owner === ownerId) {
+            if (base.owner === ownerId || base.hp <= 0) {
                 continue;
             }
             const dist = Math.hypot(base.x - x, base.z - z);
-            if (dist < closestDistance) {
-                closest = base;
-                closestDistance = dist;
+            if (dist < closestAnyDistance) {
+                closestAny = base;
+                closestAnyDistance = dist;
+            }
+            if (!this.isPositionVisibleToOwner(ownerId, base.x, base.z)) {
+                continue;
+            }
+            if (dist < closestVisibleDistance) {
+                closestVisible = base;
+                closestVisibleDistance = dist;
             }
         }
-        return closest;
+        return closestVisible ?? closestAny;
+    }
+    getUnitVisionRadius(unit) {
+        const baseRadius = unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS;
+        return baseRadius + Math.max(0, unit.radarRangeBonus ?? 0);
+    }
+    getBaseVisionRadius(base) {
+        return (BASE_VISION_RADIUS +
+            Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP);
+    }
+    isPositionVisibleToOwner(ownerId, x, z) {
+        for (const unit of this.state.units.values()) {
+            if (unit.owner !== ownerId || unit.hp <= 0) {
+                continue;
+            }
+            const dist = Math.hypot(unit.x - x, unit.z - z);
+            if (dist <= this.getUnitVisionRadius(unit)) {
+                return true;
+            }
+        }
+        for (const base of this.state.bases.values()) {
+            if (base.owner !== ownerId || base.hp <= 0) {
+                continue;
+            }
+            const dist = Math.hypot(base.x - x, base.z - z);
+            if (dist <= this.getBaseVisionRadius(base)) {
+                return true;
+            }
+        }
+        return false;
     }
     getNearestResource(x, z) {
         let closest = null;
@@ -1265,6 +1400,13 @@ export class SpaceRoom extends Colyseus.Room {
             z: base.z,
             resources: base.resourceStock,
         });
+    }
+    getBotOwners() {
+        const owners = new Set();
+        for (const ownerId of this.aiRoomIds.keys()) {
+            owners.add(ownerId);
+        }
+        return owners;
     }
     ensureBasesForAllClients() {
         const botOwners = this.getBotOwners();
@@ -1777,16 +1919,26 @@ export class SpaceRoom extends Colyseus.Room {
         });
     }
     processRepairBays(dt) {
-        for (const module of this.state.modules.values()) {
-            if (module.moduleType !== "REPAIR_BAY" || !module.active) {
+        for (const base of this.state.bases.values()) {
+            if (base.hp <= 0) {
                 continue;
             }
+            const repairBay = this.findModuleByType(base.id, "REPAIR_BAY");
+            if (!repairBay?.active) {
+                continue;
+            }
+            if (base.hp < BASE_STARTING_HULL) {
+                base.hp = Math.min(BASE_STARTING_HULL, base.hp + REPAIR_BASE_HULL_RATE * dt);
+            }
             for (const unit of this.state.units.values()) {
-                if (unit.owner !== module.owner) {
+                if (unit.owner !== base.owner) {
                     continue;
                 }
-                const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
-                if (dist > REPAIR_BAY_RANGE) {
+                const distToBase = Math.hypot(base.x - unit.x, base.z - unit.z);
+                const distToRepairBay = Math.hypot(repairBay.x - unit.x, repairBay.z - unit.z);
+                const inBaseSupportRange = distToBase <= REPAIR_BAY_SUPPORT_RANGE;
+                const inRepairBayRange = distToRepairBay <= REPAIR_BAY_MODULE_RANGE;
+                if (!inBaseSupportRange && !inRepairBayRange) {
                     continue;
                 }
                 if (unit.hp < unit.maxHp) {
@@ -1796,6 +1948,20 @@ export class SpaceRoom extends Colyseus.Room {
                     unit.shields = Math.min(unit.maxShields, unit.shields + REPAIR_SHIELD_RATE * dt);
                 }
             }
+        }
+    }
+    processPassiveShieldRegeneration(dt) {
+        for (const unit of this.state.units.values()) {
+            if (unit.hp <= 0 || unit.shields >= unit.maxShields) {
+                continue;
+            }
+            unit.shields = Math.min(unit.maxShields, unit.shields + PASSIVE_SHIELD_REGEN_RATE * dt);
+        }
+        for (const base of this.state.bases.values()) {
+            if (base.hp <= 0 || base.shields >= base.maxShields) {
+                continue;
+            }
+            base.shields = Math.min(base.maxShields, base.shields + PASSIVE_SHIELD_REGEN_RATE * dt);
         }
     }
     isModuleTypeResearched(base, moduleType) {
@@ -2025,6 +2191,28 @@ export class SpaceRoom extends Colyseus.Room {
             default:
                 return null;
         }
+    }
+    restartMatch() {
+        this.matchEnded = false;
+        this.eliminatedOwners.clear();
+        this.baseDropoffLocks.clear();
+        this.pirateUnitSquads.clear();
+        this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
+        this.pirateSquadIndex = 0;
+        this.baseSpawnIndex = 0;
+        this.state.units.clear();
+        this.state.bases.clear();
+        this.state.modules.clear();
+        this.state.resources.clear();
+        for (const room of this.state.lobbyRooms.values()) {
+            for (const player of room.players.values()) {
+                player.ready = false;
+            }
+        }
+        this.ensureResourceNodes();
+        this.ensureBasesForAllClients();
+        this.emitLobbyRooms();
+        this.broadcast("game:restarted");
     }
     removePlayerFromLobbyRoom(sessionId) {
         const roomId = this.playerRoomIds.get(sessionId);

@@ -534,6 +534,40 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       this.emitLobbyRooms();
     });
 
+    this.onMessage("lobby:removeRoom", (client) => {
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      if (!roomId) {
+        return;
+      }
+      const room = this.state.lobbyRooms.get(roomId);
+      if (!room || room.hostId !== client.sessionId) {
+        return;
+      }
+      const participantIds = Array.from(room.players.keys());
+      participantIds.forEach((playerId) => {
+        if (this.aiRoomIds.has(playerId)) {
+          this.removeAiPlayer(playerId);
+          return;
+        }
+        this.playerRoomIds.delete(playerId);
+      });
+      this.state.lobbyRooms.delete(roomId);
+      this.emitLobbyRooms();
+      this.broadcast("lobby:roomRemoved", { roomId });
+    });
+
+    this.onMessage("lobby:restartGame", (client) => {
+      const roomId = this.playerRoomIds.get(client.sessionId);
+      if (!roomId) {
+        return;
+      }
+      const room = this.state.lobbyRooms.get(roomId);
+      if (!room || room.hostId !== client.sessionId) {
+        return;
+      }
+      this.restartMatch();
+    });
+
     this.ensureResourceNodes();
     this.spawnPirateSquadsIfNeeded();
   }
@@ -2478,6 +2512,32 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       default:
         return null;
     }
+  }
+
+  private restartMatch() {
+    this.matchEnded = false;
+    this.eliminatedOwners.clear();
+    this.baseDropoffLocks.clear();
+    this.pirateUnitSquads.clear();
+    this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
+    this.pirateSquadIndex = 0;
+    this.baseSpawnIndex = 0;
+
+    this.state.units.clear();
+    this.state.bases.clear();
+    this.state.modules.clear();
+    this.state.resources.clear();
+
+    for (const room of this.state.lobbyRooms.values()) {
+      for (const player of room.players.values()) {
+        player.ready = false;
+      }
+    }
+
+    this.ensureResourceNodes();
+    this.ensureBasesForAllClients();
+    this.emitLobbyRooms();
+    this.broadcast("game:restarted");
   }
 
   private removePlayerFromLobbyRoom(sessionId: string) {
