@@ -97,6 +97,9 @@ const PIRATE_PATROL_ARRIVAL_RADIUS = 12;
 const COMMAND_FORMATION_SPACING = 7;
 const MAX_LOBBY_PLAYERS = 3;
 const AI_PLAYER_NAME_PREFIX = "AI Commander";
+const AI_DECISION_INTERVAL_SECONDS = 1.5;
+const AI_MAX_COLLECTORS = 3;
+const AI_MAX_FIGHTERS = 8;
 
 const UNIT_CONFIG: Record<
   UnitType,
@@ -284,6 +287,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private pirateSquadIndex = 0;
   private readonly pirateUnitSquads = new Map<string, string>();
   private readonly aiRoomIds = new Map<string, string>();
+  private readonly aiDecisionCooldownSeconds = new Map<string, number>();
   private aiPlayerIndex = 1;
 
   onCreate() {
@@ -574,6 +578,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private removeAiPlayer(aiPlayerId: string) {
     this.removePlayerFromLobbyRoom(aiPlayerId);
     this.aiRoomIds.delete(aiPlayerId);
+    this.aiDecisionCooldownSeconds.delete(aiPlayerId);
     this.playerNames.delete(aiPlayerId);
     for (const [id, unit] of this.state.units.entries()) {
       if (unit.owner === aiPlayerId) {
@@ -613,7 +618,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.ensureResourceNodes();
     this.updatePirateSpawns(dt);
     this.updatePiratePatrolOrders();
-    this.updateAiPlayers();
+    this.updateAiPlayers(dt);
     this.advanceCollectorTimers(dt);
     simulate({
       units: this.state.units,
@@ -630,10 +635,109 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.processResearch(dt);
   }
 
-  private updateAiPlayers() {
-    // Placeholder AI tick hook.
-    // AI lobby players should not crash the room tick even when no tactical AI
-    // behavior has been implemented yet.
+  private updateAiPlayers(dt: number) {
+    for (const ownerId of this.aiRoomIds.keys()) {
+      if (this.eliminatedOwners.has(ownerId)) {
+        continue;
+      }
+      const base = this.getPrimaryBaseForOwner(ownerId);
+      if (!base) {
+        continue;
+      }
+
+      const decisionCooldown = this.aiDecisionCooldownSeconds.get(ownerId) ?? 0;
+      const nextCooldown = decisionCooldown - dt;
+      if (nextCooldown > 0) {
+        this.aiDecisionCooldownSeconds.set(ownerId, nextCooldown);
+        continue;
+      }
+      this.aiDecisionCooldownSeconds.set(ownerId, AI_DECISION_INTERVAL_SECONDS);
+
+      const ownedUnits = this.getAllUnitsForClient(ownerId);
+      const collectors = ownedUnits.filter(
+        (unit) => unit.unitType === "RESOURCE_COLLECTOR",
+      );
+      const fighters = ownedUnits.filter((unit) => unit.unitType === "FIGHTER");
+
+      if (collectors.length < AI_MAX_COLLECTORS) {
+        const spawnedCollector = this.buildUnitForOwner(
+          ownerId,
+          base.id,
+          "RESOURCE_COLLECTOR",
+        );
+        if (spawnedCollector) {
+          this.assignCollectorAiOrder(spawnedCollector);
+        }
+      } else if (fighters.length < AI_MAX_FIGHTERS) {
+        const spawnedFighter = this.buildUnitForOwner(ownerId, base.id, "FIGHTER");
+        if (spawnedFighter) {
+          this.assignFighterAiOrder(spawnedFighter);
+        }
+      }
+
+      collectors.forEach((collector) => this.assignCollectorAiOrder(collector));
+      fighters.forEach((fighter) => this.assignFighterAiOrder(fighter));
+    }
+  }
+
+  private getPrimaryBaseForOwner(ownerId: string) {
+    for (const base of this.state.bases.values()) {
+      if (base.owner === ownerId) {
+        return base;
+      }
+    }
+    return null;
+  }
+
+  private assignCollectorAiOrder(unit: UnitSchema) {
+    if (unit.cargo >= unit.cargoCapacity) {
+      this.sendCollectorToBase(unit);
+      return;
+    }
+    const currentHarvestTarget = unit.harvestTargetId
+      ? this.state.resources.get(unit.harvestTargetId)
+      : null;
+    if (
+      unit.orderType === "HARVEST" &&
+      currentHarvestTarget &&
+      currentHarvestTarget.amount > 0
+    ) {
+      return;
+    }
+    const resource = this.getNearestResource(unit.x, unit.z);
+    if (!resource) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+      return;
+    }
+    unit.orderType = "HARVEST";
+    unit.orderTargetId = resource.id;
+    unit.harvestTargetId = resource.id;
+    unit.orderX = resource.x;
+    unit.orderZ = resource.z;
+  }
+
+  private assignFighterAiOrder(unit: UnitSchema) {
+    if (unit.orderType === "ATTACK" && unit.orderTargetId) {
+      const targetExists =
+        this.state.units.has(unit.orderTargetId) ||
+        this.state.bases.has(unit.orderTargetId);
+      if (targetExists) {
+        return;
+      }
+    }
+    const enemyBase = this.getNearestEnemyBase(unit.owner, unit.x, unit.z);
+    if (!enemyBase) {
+      unit.orderType = "AGGRESSIVE";
+      unit.orderTargetId = "";
+      unit.orderX = unit.x;
+      unit.orderZ = unit.z;
+      return;
+    }
+    unit.orderType = "ATTACK_MOVE";
+    unit.orderTargetId = "";
+    unit.orderX = enemyBase.x;
+    unit.orderZ = enemyBase.z;
   }
 
   private removeDestroyedUnits() {
