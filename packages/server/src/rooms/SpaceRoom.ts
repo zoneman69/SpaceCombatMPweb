@@ -60,6 +60,7 @@ const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
 const RESEARCH_PREREQ_BASE_MODULE = "RESEARCH_LAB";
 const REPAIR_BAY_SUPPORT_RANGE = 18;
+const REPAIR_BAY_MODULE_RANGE = 5;
 const REPAIR_HULL_RATE = 18;
 const REPAIR_SHIELD_RATE = 26;
 const REPAIR_BASE_HULL_RATE = 12;
@@ -2163,8 +2164,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         if (unit.owner !== base.owner) {
           continue;
         }
-        const dist = Math.hypot(base.x - unit.x, base.z - unit.z);
-        if (dist > REPAIR_BAY_SUPPORT_RANGE) {
+        const distToBase = Math.hypot(base.x - unit.x, base.z - unit.z);
+        const distToRepairBay = Math.hypot(repairBay.x - unit.x, repairBay.z - unit.z);
+        const inBaseSupportRange = distToBase <= REPAIR_BAY_SUPPORT_RANGE;
+        const inRepairBayRange = distToRepairBay <= REPAIR_BAY_MODULE_RANGE;
+        if (!inBaseSupportRange && !inRepairBayRange) {
           continue;
         }
         if (unit.hp < unit.maxHp) {
