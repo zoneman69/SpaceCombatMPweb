@@ -630,6 +630,12 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.processResearch(dt);
   }
 
+  private updateAiPlayers() {
+    // Placeholder AI tick hook.
+    // AI lobby players should not crash the room tick even when no tactical AI
+    // behavior has been implemented yet.
+  }
+
   private removeDestroyedUnits() {
     const destroyedIds = new Set<string>();
     for (const [id, unit] of this.state.units.entries()) {
@@ -708,27 +714,49 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     if (this.matchEnded) {
       return;
     }
-    const connectedHumanOwners = new Set(this.clients.map((c) => c.sessionId));
-    if (connectedHumanOwners.size < 2) {
-      return;
-    }
     const survivingOwners = new Set<string>();
+    const contenderOwners = new Set<string>();
     for (const base of this.state.bases.values()) {
       if (
         base.owner === PIRATE_OWNER_ID ||
-        base.hp <= 0 ||
-        this.eliminatedOwners.has(base.owner)
+        base.hp <= 0
       ) {
         continue;
       }
+      contenderOwners.add(base.owner);
+      if (this.eliminatedOwners.has(base.owner)) {
+        continue;
+      }
       survivingOwners.add(base.owner);
+    }
+    for (const ownerId of this.eliminatedOwners) {
+      if (ownerId === PIRATE_OWNER_ID) {
+        continue;
+      }
+      contenderOwners.add(ownerId);
+    }
+    if (contenderOwners.size < 2) {
+      return;
     }
     if (survivingOwners.size > 1) {
       return;
     }
     this.matchEnded = true;
     const [winnerId] = Array.from(survivingOwners.values());
-    this.broadcast("game:ended", { winnerId: winnerId ?? null });
+    const report = Array.from(contenderOwners.values()).map((ownerId) => ({
+      ownerId,
+      eliminated: this.eliminatedOwners.has(ownerId),
+      basesRemaining: Array.from(this.state.bases.values()).filter(
+        (base) => base.owner === ownerId && base.hp > 0,
+      ).length,
+      unitsRemaining: Array.from(this.state.units.values()).filter(
+        (unit) => unit.owner === ownerId && unit.hp > 0,
+      ).length,
+      modulesRemaining: Array.from(this.state.modules.values()).filter(
+        (module) => module.owner === ownerId,
+      ).length,
+    }));
+    this.broadcast("game:ended", { winnerId: winnerId ?? null, report });
   }
 
   private advanceCollectorTimers(dt: number) {
@@ -1355,6 +1383,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       z: base.z,
       resources: base.resourceStock,
     });
+  }
+
+  private getBotOwners() {
+    const owners = new Set<string>();
+    for (const ownerId of this.aiRoomIds.keys()) {
+      owners.add(ownerId);
+    }
+    return owners;
   }
 
   private ensureBasesForAllClients() {
