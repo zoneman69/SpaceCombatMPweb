@@ -742,6 +742,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       return;
     }
     this.matchEnded = true;
+    this.resetLobbyReadiness();
     const [winnerId] = Array.from(survivingOwners.values());
     const report = Array.from(contenderOwners.values()).map((ownerId) => ({
       ownerId,
@@ -757,6 +758,22 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       ).length,
     }));
     this.broadcast("game:ended", { winnerId: winnerId ?? null, report });
+  }
+
+  private resetLobbyReadiness() {
+    let changed = false;
+    for (const room of this.state.lobbyRooms.values()) {
+      for (const player of room.players.values()) {
+        if (!player.ready) {
+          continue;
+        }
+        player.ready = false;
+        changed = true;
+      }
+    }
+    if (changed) {
+      this.emitLobbyRooms();
+    }
   }
 
   private advanceCollectorTimers(dt: number) {
