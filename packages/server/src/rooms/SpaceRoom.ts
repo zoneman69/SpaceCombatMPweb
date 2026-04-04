@@ -1357,6 +1357,14 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
   }
 
+  private getBotOwners() {
+    const owners = new Set<string>();
+    for (const ownerId of this.aiRoomIds.keys()) {
+      owners.add(ownerId);
+    }
+    return owners;
+  }
+
   private ensureBasesForAllClients() {
     const botOwners = this.getBotOwners();
     if (this.clients.length === 0 && botOwners.size === 0) {
