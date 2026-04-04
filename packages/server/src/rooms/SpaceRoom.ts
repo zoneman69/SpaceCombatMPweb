@@ -295,6 +295,16 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
   private readonly pirateUnitSquads = new Map<string, string>();
   private readonly aiRoomIds = new Map<string, string>();
   private readonly aiDecisionCooldownSeconds = new Map<string, number>();
+  private readonly playerMatchStats = new Map<
+    string,
+    {
+      shipsBuilt: number;
+      shipsDestroyed: number;
+      shipsLost: number;
+      basesDestroyed: number;
+      resourcesCollected: number;
+    }
+  >();
   private aiPlayerIndex = 1;
 
   onCreate() {
@@ -688,6 +698,17 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       modules: this.state.modules,
       getStats: (unit) => this.getUnitStats(unit),
       dt,
+      onEntityDestroyed: ({ attackerOwnerId, defenderOwnerId, entityType }) => {
+        if (attackerOwnerId === defenderOwnerId) {
+          return;
+        }
+        const attackerStats = this.getOrCreateMatchStats(attackerOwnerId);
+        if (entityType === "UNIT") {
+          attackerStats.shipsDestroyed += 1;
+        } else {
+          attackerStats.basesDestroyed += 1;
+        }
+      },
     });
     this.removeDestroyedUnits();
     this.removeDestroyedBases();
@@ -805,9 +826,11 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private removeDestroyedUnits() {
     const destroyedIds = new Set<string>();
+    const destroyedOwners = new Map<string, number>();
     for (const [id, unit] of this.state.units.entries()) {
       if (unit.hp <= 0) {
         destroyedIds.add(id);
+        destroyedOwners.set(unit.owner, (destroyedOwners.get(unit.owner) ?? 0) + 1);
       }
     }
     if (destroyedIds.size === 0) {
@@ -821,6 +844,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       if (destroyedIds.has(lockedBy)) {
         this.baseDropoffLocks.delete(baseId);
       }
+    }
+    for (const [ownerId, destroyedCount] of destroyedOwners.entries()) {
+      this.getOrCreateMatchStats(ownerId).shipsLost += destroyedCount;
     }
   }
 
@@ -911,8 +937,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.matchEnded = true;
     this.resetLobbyReadiness();
     const [winnerId] = Array.from(survivingOwners.values());
-    const report = Array.from(contenderOwners.values()).map((ownerId) => ({
+    const endStats = Array.from(contenderOwners.values()).map((ownerId) => ({
       ownerId,
+      playerName: this.getPlayerName(ownerId),
       eliminated: this.eliminatedOwners.has(ownerId),
       basesRemaining: Array.from(this.state.bases.values()).filter(
         (base) => base.owner === ownerId && base.hp > 0,
@@ -923,8 +950,9 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       modulesRemaining: Array.from(this.state.modules.values()).filter(
         (module) => module.owner === ownerId,
       ).length,
+      ...this.getOrCreateMatchStats(ownerId),
     }));
-    this.broadcast("game:ended", { winnerId: winnerId ?? null, report });
+    this.broadcast("game:ended", { winnerId: winnerId ?? null, endStats });
   }
 
   private resetLobbyReadiness() {
@@ -1003,6 +1031,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       return;
     }
     if (unit.cargo > 0) {
+      this.getOrCreateMatchStats(unit.owner).resourcesCollected += unit.cargo;
       base.resourceStock += unit.cargo;
       unit.cargo = 0;
     }
@@ -1513,6 +1542,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.x = base.x + 6;
     unit.z = base.z + 6;
     this.state.units.set(unit.id, unit);
+    this.getOrCreateMatchStats(ownerId).shipsBuilt += 1;
     return unit;
   }
 
@@ -2516,6 +2546,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
     this.pirateSquadIndex = 0;
     this.baseSpawnIndex = 0;
+    this.playerMatchStats.clear();
 
     this.state.units.clear();
     this.state.bases.clear();
@@ -2578,6 +2609,22 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
 
   private getPlayerName(sessionId: string) {
     return this.playerNames.get(sessionId) ?? `Pilot-${sessionId.slice(0, 4)}`;
+  }
+
+  private getOrCreateMatchStats(ownerId: string) {
+    const existing = this.playerMatchStats.get(ownerId);
+    if (existing) {
+      return existing;
+    }
+    const initialStats = {
+      shipsBuilt: 0,
+      shipsDestroyed: 0,
+      shipsLost: 0,
+      basesDestroyed: 0,
+      resourcesCollected: 0,
+    };
+    this.playerMatchStats.set(ownerId, initialStats);
+    return initialStats;
   }
 
   private emitLobbyRooms(target?: Colyseus.Client) {

@@ -348,7 +348,6 @@ export default function App() {
         } else {
           setStatus("Match ended 🏁 No winner.");
         }
-        setView("lobby");
       });
 
       room.onMessage("game:restarted", () => {

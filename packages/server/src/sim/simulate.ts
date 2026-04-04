@@ -39,11 +39,17 @@ export type SimContext = {
   modules: ModuleCollection;
   getStats: (unit: UnitSchema) => ShipStats;
   dt: number;
+  onEntityDestroyed?: (event: {
+    attackerOwnerId: string;
+    defenderOwnerId: string;
+    entityType: "UNIT" | "BASE";
+    entityId: string;
+  }) => void;
 };
 
 type AttackTarget = Pick<
   UnitSchema | BaseSchema,
-  "id" | "x" | "z" | "hp" | "shields" | "maxShields"
+  "id" | "owner" | "x" | "z" | "hp" | "shields" | "maxShields"
 >;
 
 type VisibilityTarget = Pick<UnitSchema | BaseSchema, "x" | "z">;
@@ -95,15 +101,22 @@ const BASE_WEAPON_STATS: Record<
   },
 };
 
-export const simulate = ({ units, bases, modules, getStats, dt }: SimContext) => {
+export const simulate = ({
+  units,
+  bases,
+  modules,
+  getStats,
+  dt,
+  onEntityDestroyed,
+}: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
     const stats = getStats(unit);
-    updateUnit(unit, units, bases, stats, dt);
+    updateUnit(unit, units, bases, stats, dt, onEntityDestroyed);
   }
   const baseList = Array.from(bases.values());
   for (const base of baseList) {
-    updateBase(base, units, bases, modules, dt);
+    updateBase(base, units, bases, modules, dt, onEntityDestroyed);
   }
   resolveUnitCollisions(unitList);
 };
@@ -114,6 +127,7 @@ const updateUnit = (
   bases: BaseCollection,
   stats: ShipStats,
   dt: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
   if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
     unit.vx = 0;
@@ -152,7 +166,7 @@ const updateUnit = (
         const distToTarget = distance(unit.x, unit.z, target.x, target.z);
         shouldMove = distToTarget > stats.weaponRange * 0.85;
         unit.tgt = target.id;
-        maybeFire(unit, target, stats, distToTarget);
+        maybeFire(unit, target, stats, distToTarget, onEntityDestroyed);
       }
     } else {
       unit.tgt = "";
@@ -166,7 +180,7 @@ const updateUnit = (
     autoTarget = findAutoTarget(unit, units, bases, stats);
     if (autoTarget) {
       unit.tgt = autoTarget.target.id;
-      maybeFire(unit, autoTarget.target, stats, autoTarget.distance);
+      maybeFire(unit, autoTarget.target, stats, autoTarget.distance, onEntityDestroyed);
       if (canPursueAutoTarget) {
         desiredX = autoTarget.target.x;
         desiredZ = autoTarget.target.z;
@@ -280,6 +294,7 @@ const maybeFire = (
   target: AttackTarget,
   stats: ShipStats,
   distToTarget: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
   const weaponMounts = Math.max(0, unit.weaponMounts ?? 0);
   if (weaponMounts <= 0) {
@@ -299,7 +314,16 @@ const maybeFire = (
     remainingDamage -= absorbed;
   }
   if (remainingDamage > 0) {
+    const hpBeforeDamage = target.hp;
     target.hp = Math.max(0, target.hp - remainingDamage);
+    if (hpBeforeDamage > 0 && target.hp === 0) {
+      onEntityDestroyed?.({
+        attackerOwnerId: unit.owner,
+        defenderOwnerId: target.owner,
+        entityType: "unitType" in target ? "UNIT" : "BASE",
+        entityId: target.id,
+      });
+    }
   }
 };
 
@@ -415,6 +439,7 @@ const updateBase = (
   bases: BaseCollection,
   modules: ModuleCollection,
   dt: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
   const baseWeaponStats = BASE_WEAPON_STATS.LASER;
   if (base.weaponCooldownLeft > 0) {
@@ -428,6 +453,8 @@ const updateBase = (
       applyDamage(
         closest.target,
         baseWeaponStats.weaponDamage * baseWeaponMounts,
+        base.owner,
+        onEntityDestroyed,
       );
     }
   }
@@ -451,7 +478,7 @@ const updateBase = (
       continue;
     }
     module.weaponCooldownLeft = stats.weaponCooldown;
-    applyDamage(closest.target, stats.weaponDamage);
+    applyDamage(closest.target, stats.weaponDamage, base.owner, onEntityDestroyed);
   }
 };
 
@@ -497,7 +524,12 @@ const findClosestBaseTarget = (
   return { target: closest, distance: closestDistance };
 };
 
-const applyDamage = (target: AttackTarget, damage: number) => {
+const applyDamage = (
+  target: AttackTarget,
+  damage: number,
+  attackerOwnerId: string,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
+) => {
   let remainingDamage = Math.max(0, damage);
   if (remainingDamage <= 0) {
     return;
@@ -508,7 +540,16 @@ const applyDamage = (target: AttackTarget, damage: number) => {
     remainingDamage -= absorbed;
   }
   if (remainingDamage > 0) {
+    const hpBeforeDamage = target.hp;
     target.hp = Math.max(0, target.hp - remainingDamage);
+    if (hpBeforeDamage > 0 && target.hp === 0) {
+      onEntityDestroyed?.({
+        attackerOwnerId,
+        defenderOwnerId: target.owner,
+        entityType: "unitType" in target ? "UNIT" : "BASE",
+        entityId: target.id,
+      });
+    }
   }
 };
 

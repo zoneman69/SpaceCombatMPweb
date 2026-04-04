@@ -58,15 +58,21 @@ type FiringEffect = {
 type EndStatsRow = {
   ownerId: string;
   playerName: string;
-  units: number;
-  bases: number;
-  modules: number;
-  resources: number;
+  eliminated: boolean;
+  basesRemaining: number;
+  unitsRemaining: number;
+  modulesRemaining: number;
+  shipsBuilt: number;
+  shipsDestroyed: number;
+  shipsLost: number;
+  basesDestroyed: number;
+  resourcesCollected: number;
 };
 
 type MatchSummary = {
   winnerId: string;
   endStats: EndStatsRow[];
+  matchComplete: boolean;
 };
 
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
@@ -615,6 +621,7 @@ export default function TacticalView({
       setMatchSummary({
         winnerId: "",
         endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+        matchComplete: false,
       });
     });
     room.onMessage(
@@ -623,6 +630,7 @@ export default function TacticalView({
         setMatchSummary({
           winnerId: payload?.winnerId ?? "",
           endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+          matchComplete: true,
         });
       },
     );
@@ -4141,13 +4149,6 @@ export default function TacticalView({
                     <p className="mount-label">Endgame stats</p>
                     <p className="mount-title">{summaryTitle}</p>
                   </div>
-                  <button
-                    className="hud-button"
-                    type="button"
-                    onClick={() => setMatchSummary(null)}
-                  >
-                    Close
-                  </button>
                 </div>
                 {isSpectator ? (
                   <p className="hud-copy">
@@ -4156,18 +4157,20 @@ export default function TacticalView({
                 ) : null}
                 {localSummaryRow ? (
                   <p className="hud-copy">
-                    Your totals — Units: {localSummaryRow.units} · Bases:{" "}
-                    {localSummaryRow.bases} · Modules: {localSummaryRow.modules} ·
-                    Resources: {Math.floor(localSummaryRow.resources)}
+                    Your totals — Built: {localSummaryRow.shipsBuilt} · Destroyed:{" "}
+                    {localSummaryRow.shipsDestroyed} · Lost: {localSummaryRow.shipsLost} ·
+                    Resources collected: {Math.floor(localSummaryRow.resourcesCollected)}
                   </p>
                 ) : null}
                 <div className="match-summary-table" role="table" aria-label="Match totals">
                   <div className="match-summary-row match-summary-row--header" role="row">
                     <span role="columnheader">Player</span>
-                    <span role="columnheader">Units</span>
-                    <span role="columnheader">Bases</span>
-                    <span role="columnheader">Modules</span>
+                    <span role="columnheader">Built</span>
+                    <span role="columnheader">Destroyed</span>
+                    <span role="columnheader">Lost</span>
                     <span role="columnheader">Resources</span>
+                    <span role="columnheader">Bases left</span>
+                    <span role="columnheader">Status</span>
                   </div>
                   {matchSummary.endStats.map((row) => (
                     <div className="match-summary-row" role="row" key={row.ownerId}>
@@ -4175,12 +4178,28 @@ export default function TacticalView({
                         {row.playerName}
                         {row.ownerId === localSessionId ? " (You)" : ""}
                       </span>
-                      <span role="cell">{row.units}</span>
-                      <span role="cell">{row.bases}</span>
-                      <span role="cell">{row.modules}</span>
-                      <span role="cell">{Math.floor(row.resources)}</span>
+                      <span role="cell">{row.shipsBuilt}</span>
+                      <span role="cell">{row.shipsDestroyed}</span>
+                      <span role="cell">{row.shipsLost}</span>
+                      <span role="cell">{Math.floor(row.resourcesCollected)}</span>
+                      <span role="cell">{row.basesRemaining}</span>
+                      <span role="cell">{row.eliminated ? "Eliminated" : "Active"}</span>
                     </div>
                   ))}
+                </div>
+                <div className="hud-actions">
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => {
+                      setMatchSummary(null);
+                      if (matchSummary.matchComplete) {
+                        onExit?.();
+                      }
+                    }}
+                  >
+                    {matchSummary.matchComplete ? "Continue to lobby" : "Close"}
+                  </button>
                 </div>
               </div>
             </div>,

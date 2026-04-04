@@ -242,6 +242,7 @@ export class SpaceRoom extends Colyseus.Room {
         this.pirateUnitSquads = new Map();
         this.aiRoomIds = new Map();
         this.aiDecisionCooldownSeconds = new Map();
+        this.playerMatchStats = new Map();
         this.aiPlayerIndex = 1;
     }
     onCreate() {
@@ -565,6 +566,18 @@ export class SpaceRoom extends Colyseus.Room {
             modules: this.state.modules,
             getStats: (unit) => this.getUnitStats(unit),
             dt,
+            onEntityDestroyed: ({ attackerOwnerId, defenderOwnerId, entityType }) => {
+                if (attackerOwnerId === defenderOwnerId) {
+                    return;
+                }
+                const attackerStats = this.getOrCreateMatchStats(attackerOwnerId);
+                if (entityType === "UNIT") {
+                    attackerStats.shipsDestroyed += 1;
+                }
+                else {
+                    attackerStats.basesDestroyed += 1;
+                }
+            },
         });
         this.removeDestroyedUnits();
         this.removeDestroyedBases();
@@ -665,9 +678,11 @@ export class SpaceRoom extends Colyseus.Room {
     }
     removeDestroyedUnits() {
         const destroyedIds = new Set();
+        const destroyedOwners = new Map();
         for (const [id, unit] of this.state.units.entries()) {
             if (unit.hp <= 0) {
                 destroyedIds.add(id);
+                destroyedOwners.set(unit.owner, (destroyedOwners.get(unit.owner) ?? 0) + 1);
             }
         }
         if (destroyedIds.size === 0) {
@@ -681,6 +696,9 @@ export class SpaceRoom extends Colyseus.Room {
             if (destroyedIds.has(lockedBy)) {
                 this.baseDropoffLocks.delete(baseId);
             }
+        }
+        for (const [ownerId, destroyedCount] of destroyedOwners.entries()) {
+            this.getOrCreateMatchStats(ownerId).shipsLost += destroyedCount;
         }
     }
     removeDestroyedBases() {
@@ -764,14 +782,16 @@ export class SpaceRoom extends Colyseus.Room {
         this.matchEnded = true;
         this.resetLobbyReadiness();
         const [winnerId] = Array.from(survivingOwners.values());
-        const report = Array.from(contenderOwners.values()).map((ownerId) => ({
+        const endStats = Array.from(contenderOwners.values()).map((ownerId) => ({
             ownerId,
+            playerName: this.getPlayerName(ownerId),
             eliminated: this.eliminatedOwners.has(ownerId),
             basesRemaining: Array.from(this.state.bases.values()).filter((base) => base.owner === ownerId && base.hp > 0).length,
             unitsRemaining: Array.from(this.state.units.values()).filter((unit) => unit.owner === ownerId && unit.hp > 0).length,
             modulesRemaining: Array.from(this.state.modules.values()).filter((module) => module.owner === ownerId).length,
+            ...this.getOrCreateMatchStats(ownerId),
         }));
-        this.broadcast("game:ended", { winnerId: winnerId ?? null, report });
+        this.broadcast("game:ended", { winnerId: winnerId ?? null, endStats });
     }
     resetLobbyReadiness() {
         let changed = false;
@@ -845,6 +865,7 @@ export class SpaceRoom extends Colyseus.Room {
             return;
         }
         if (unit.cargo > 0) {
+            this.getOrCreateMatchStats(unit.owner).resourcesCollected += unit.cargo;
             base.resourceStock += unit.cargo;
             unit.cargo = 0;
         }
@@ -1303,6 +1324,7 @@ export class SpaceRoom extends Colyseus.Room {
         unit.x = base.x + 6;
         unit.z = base.z + 6;
         this.state.units.set(unit.id, unit);
+        this.getOrCreateMatchStats(ownerId).shipsBuilt += 1;
         return unit;
     }
     addPlayerToLobbyRoom(room, sessionId) {
@@ -2194,6 +2216,7 @@ export class SpaceRoom extends Colyseus.Room {
         this.pirateSpawnTimerSeconds = PIRATE_SPAWN_INTERVAL_SECONDS;
         this.pirateSquadIndex = 0;
         this.baseSpawnIndex = 0;
+        this.playerMatchStats.clear();
         this.state.units.clear();
         this.state.bases.clear();
         this.state.modules.clear();
@@ -2248,6 +2271,21 @@ export class SpaceRoom extends Colyseus.Room {
     }
     getPlayerName(sessionId) {
         return this.playerNames.get(sessionId) ?? `Pilot-${sessionId.slice(0, 4)}`;
+    }
+    getOrCreateMatchStats(ownerId) {
+        const existing = this.playerMatchStats.get(ownerId);
+        if (existing) {
+            return existing;
+        }
+        const initialStats = {
+            shipsBuilt: 0,
+            shipsDestroyed: 0,
+            shipsLost: 0,
+            basesDestroyed: 0,
+            resourcesCollected: 0,
+        };
+        this.playerMatchStats.set(ownerId, initialStats);
+        return initialStats;
     }
     emitLobbyRooms(target) {
         const payload = Array.from(this.state.lobbyRooms.values()).map((room) => ({
