@@ -39,12 +39,26 @@ export type SimContext = {
   modules: ModuleCollection;
   getStats: (unit: UnitSchema) => ShipStats;
   dt: number;
+  onEntityDestroyed?: (event: {
+    attackerOwnerId: string;
+    defenderOwnerId: string;
+    entityType: "UNIT" | "BASE";
+    entityId: string;
+  }) => void;
 };
 
 type AttackTarget = Pick<
   UnitSchema | BaseSchema,
-  "id" | "x" | "z" | "hp" | "shields" | "maxShields"
+  "id" | "owner" | "x" | "z" | "hp" | "shields" | "maxShields"
 >;
+
+type VisibilityTarget = Pick<UnitSchema | BaseSchema, "x" | "z">;
+
+const FIGHTER_VISION_RADIUS = 30;
+const COLLECTOR_VISION_RADIUS = 60;
+const BASE_VISION_RADIUS = 100;
+const RADAR_UPGRADE_VISION_STEP = 12;
+const PATROL_WANDER_RADIUS = 24;
 
 const BASE_WEAPON_STATS: Record<
   WeaponType,
@@ -87,15 +101,22 @@ const BASE_WEAPON_STATS: Record<
   },
 };
 
-export const simulate = ({ units, bases, modules, getStats, dt }: SimContext) => {
+export const simulate = ({
+  units,
+  bases,
+  modules,
+  getStats,
+  dt,
+  onEntityDestroyed,
+}: SimContext) => {
   const unitList = Array.from(units.values());
   for (const unit of unitList) {
     const stats = getStats(unit);
-    updateUnit(unit, units, bases, stats, dt);
+    updateUnit(unit, units, bases, stats, dt, onEntityDestroyed);
   }
   const baseList = Array.from(bases.values());
   for (const base of baseList) {
-    updateBase(base, units, bases, modules, dt);
+    updateBase(base, units, bases, modules, dt, onEntityDestroyed);
   }
   resolveUnitCollisions(unitList);
 };
@@ -106,6 +127,7 @@ const updateUnit = (
   bases: BaseCollection,
   stats: ShipStats,
   dt: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
   if (unit.harvestWaitLeft > 0 || unit.dropoffWaitLeft > 0) {
     unit.vx = 0;
@@ -118,7 +140,13 @@ const updateUnit = (
     unit.orderType === "MOVE" ||
     unit.orderType === "ATTACK_MOVE" ||
     unit.orderType === "HARVEST" ||
-    unit.orderType === "RETURN";
+    unit.orderType === "RETURN" ||
+    unit.orderType === "PATROL" ||
+    unit.orderType === "RETURN_TO_BASE" ||
+    unit.orderType === "RETURN_TO_GARAGE" ||
+    unit.orderType === "RETURN_TO_REPAIR";
+  const canPursueAutoTarget =
+    unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL";
 
   let desiredX = unit.x;
   let desiredZ = unit.z;
@@ -128,28 +156,59 @@ const updateUnit = (
     const target =
       units.get(unit.orderTargetId) ?? bases.get(unit.orderTargetId);
     if (target) {
-      desiredX = target.x;
-      desiredZ = target.z;
-      const distToTarget = distance(unit.x, unit.z, target.x, target.z);
-      shouldMove = distToTarget > stats.weaponRange * 0.85;
-      unit.tgt = target.id;
-      maybeFire(unit, target, stats, distToTarget);
+      if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
+        unit.tgt = "";
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
+      } else {
+        desiredX = target.x;
+        desiredZ = target.z;
+        const distToTarget = distance(unit.x, unit.z, target.x, target.z);
+        shouldMove = distToTarget > stats.weaponRange * 0.85;
+        unit.tgt = target.id;
+        maybeFire(unit, target, stats, distToTarget, onEntityDestroyed);
+      }
     } else {
       unit.tgt = "";
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
     }
   }
 
+  let autoTarget: ReturnType<typeof findAutoTarget> = null;
   if (!hasTarget) {
-    const autoTarget = findAutoTarget(unit, units, bases, stats);
+    autoTarget = findAutoTarget(unit, units, bases, stats);
     if (autoTarget) {
       unit.tgt = autoTarget.target.id;
-      maybeFire(unit, autoTarget.target, stats, autoTarget.distance);
+      maybeFire(unit, autoTarget.target, stats, autoTarget.distance, onEntityDestroyed);
+      if (canPursueAutoTarget) {
+        desiredX = autoTarget.target.x;
+        desiredZ = autoTarget.target.z;
+        shouldMove = autoTarget.distance > stats.weaponRange * 0.85;
+      }
     } else {
       unit.tgt = "";
     }
   }
 
-  if (hasMoveTarget) {
+  if (unit.orderType === "GUARD" && unit.orderTargetId) {
+    const guardedUnit = units.get(unit.orderTargetId);
+    if (
+      !guardedUnit ||
+      guardedUnit.id === unit.id ||
+      guardedUnit.owner !== unit.owner
+    ) {
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+    } else {
+      desiredX = guardedUnit.x;
+      desiredZ = guardedUnit.z;
+      const distToGuarded = distance(unit.x, unit.z, desiredX, desiredZ);
+      shouldMove = distToGuarded > Math.max(stats.arrivalRadius * 2, 8);
+    }
+  }
+
+  if (hasMoveTarget && !(canPursueAutoTarget && autoTarget)) {
     desiredX = unit.orderX;
     desiredZ = unit.orderZ;
     const distToTarget = distance(unit.x, unit.z, desiredX, desiredZ);
@@ -159,7 +218,16 @@ const updateUnit = (
       unit.z = desiredZ;
       unit.vx = 0;
       unit.vz = 0;
-      if (unit.orderType === "MOVE") {
+      if (unit.orderType === "PATROL") {
+        const nextPoint = getRandomPatrolPoint(unit.x, unit.z);
+        unit.orderX = nextPoint.x;
+        unit.orderZ = nextPoint.z;
+      } else if (
+        unit.orderType === "MOVE" ||
+        unit.orderType === "RETURN_TO_BASE" ||
+        unit.orderType === "RETURN_TO_GARAGE" ||
+        unit.orderType === "RETURN_TO_REPAIR"
+      ) {
         unit.orderType = "STOP";
         unit.orderTargetId = "";
       }
@@ -226,6 +294,7 @@ const maybeFire = (
   target: AttackTarget,
   stats: ShipStats,
   distToTarget: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
   const weaponMounts = Math.max(0, unit.weaponMounts ?? 0);
   if (weaponMounts <= 0) {
@@ -245,12 +314,30 @@ const maybeFire = (
     remainingDamage -= absorbed;
   }
   if (remainingDamage > 0) {
+    const hpBeforeDamage = target.hp;
     target.hp = Math.max(0, target.hp - remainingDamage);
+    if (hpBeforeDamage > 0 && target.hp === 0) {
+      onEntityDestroyed?.({
+        attackerOwnerId: unit.owner,
+        defenderOwnerId: target.owner,
+        entityType: "unitType" in target ? "UNIT" : "BASE",
+        entityId: target.id,
+      });
+    }
   }
 };
 
 const distance = (ax: number, az: number, bx: number, bz: number) =>
   Math.hypot(ax - bx, az - bz);
+
+const getRandomPatrolPoint = (centerX: number, centerZ: number) => {
+  const angle = Math.random() * Math.PI * 2;
+  const radius = PATROL_WANDER_RADIUS * (0.35 + Math.random() * 0.65);
+  return {
+    x: centerX + Math.cos(angle) * radius,
+    z: centerZ + Math.sin(angle) * radius,
+  };
+};
 
 const isEnemy = (unit: UnitSchema, target: UnitSchema | BaseSchema) =>
   target.owner !== unit.owner;
@@ -270,12 +357,19 @@ const findAutoTarget = (
   }
   let closest: AttackTarget | null = null;
   let closestDistance = 0;
+  const searchRange =
+    unit.orderType === "AGGRESSIVE" || unit.orderType === "PATROL"
+      ? getUnitVisionRadius(unit)
+      : stats.weaponRange;
   for (const target of units.values()) {
     if (target.id === unit.id || !isEnemy(unit, target) || target.hp <= 0) {
       continue;
     }
+    if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
+      continue;
+    }
     const dist = distance(unit.x, unit.z, target.x, target.z);
-    if (dist > stats.weaponRange) {
+    if (dist > searchRange) {
       continue;
     }
     if (!closest || dist < closestDistance) {
@@ -287,7 +381,135 @@ const findAutoTarget = (
     if (!isEnemy(unit, target) || target.hp <= 0) {
       continue;
     }
+    if (!isTargetVisibleToOwner(unit.owner, target, units, bases)) {
+      continue;
+    }
     const dist = distance(unit.x, unit.z, target.x, target.z);
+    if (dist > searchRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  if (!closest) {
+    return null;
+  }
+  return { target: closest, distance: closestDistance };
+};
+
+const getUnitVisionRadius = (unit: UnitSchema) =>
+  (unit.unitType === "FIGHTER" ? FIGHTER_VISION_RADIUS : COLLECTOR_VISION_RADIUS) +
+  Math.max(0, unit.radarRangeBonus ?? 0);
+
+const getBaseVisionRadius = (base: BaseSchema) =>
+  BASE_VISION_RADIUS +
+  Math.max(0, base.radarUpgradeLevel ?? 0) * RADAR_UPGRADE_VISION_STEP;
+
+const isTargetVisibleToOwner = (
+  ownerId: string,
+  target: VisibilityTarget,
+  units: UnitCollection,
+  bases: BaseCollection,
+) => {
+  for (const source of units.values()) {
+    if (source.owner !== ownerId || source.hp <= 0) {
+      continue;
+    }
+    const visionRadius = getUnitVisionRadius(source);
+    if (distance(source.x, source.z, target.x, target.z) <= visionRadius) {
+      return true;
+    }
+  }
+  for (const base of bases.values()) {
+    if (base.owner !== ownerId || base.hp <= 0) {
+      continue;
+    }
+    if (distance(base.x, base.z, target.x, target.z) <= getBaseVisionRadius(base)) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const updateBase = (
+  base: BaseSchema,
+  units: UnitCollection,
+  bases: BaseCollection,
+  modules: ModuleCollection,
+  dt: number,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
+) => {
+  const baseWeaponStats = BASE_WEAPON_STATS.LASER;
+  if (base.weaponCooldownLeft > 0) {
+    base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
+  }
+  const baseWeaponMounts = Math.max(0, base.weaponMounts ?? 0);
+  if (baseWeaponMounts > 0 && base.weaponCooldownLeft <= 0) {
+    const closest = findClosestBaseTarget(base, base.x, base.z, units, bases, baseWeaponStats);
+    if (closest) {
+      base.weaponCooldownLeft = baseWeaponStats.weaponCooldown;
+      applyDamage(
+        closest.target,
+        baseWeaponStats.weaponDamage * baseWeaponMounts,
+        base.owner,
+        onEntityDestroyed,
+      );
+    }
+  }
+
+  for (const module of modules.values()) {
+    if (module.baseId !== base.id || module.moduleType !== "WEAPON_TURRET") {
+      continue;
+    }
+    if (!module.active) {
+      continue;
+    }
+    if (module.weaponCooldownLeft > 0) {
+      module.weaponCooldownLeft = Math.max(0, module.weaponCooldownLeft - dt);
+      continue;
+    }
+    const stats =
+      BASE_WEAPON_STATS[module.weaponType as WeaponType] ??
+      BASE_WEAPON_STATS.LASER;
+    const closest = findClosestBaseTarget(base, module.x, module.z, units, bases, stats);
+    if (!closest) {
+      continue;
+    }
+    module.weaponCooldownLeft = stats.weaponCooldown;
+    applyDamage(closest.target, stats.weaponDamage, base.owner, onEntityDestroyed);
+  }
+};
+
+const findClosestBaseTarget = (
+  base: BaseSchema,
+  sourceX: number,
+  sourceZ: number,
+  units: UnitCollection,
+  bases: BaseCollection,
+  stats: Pick<ShipStats, "weaponRange">,
+) => {
+  let closest: AttackTarget | null = null;
+  let closestDistance = 0;
+  for (const target of units.values()) {
+    if (!isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(sourceX, sourceZ, target.x, target.z);
+    if (dist > stats.weaponRange) {
+      continue;
+    }
+    if (!closest || dist < closestDistance) {
+      closest = target;
+      closestDistance = dist;
+    }
+  }
+  for (const target of bases.values()) {
+    if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
+      continue;
+    }
+    const dist = distance(sourceX, sourceZ, target.x, target.z);
     if (dist > stats.weaponRange) {
       continue;
     }
@@ -302,76 +524,32 @@ const findAutoTarget = (
   return { target: closest, distance: closestDistance };
 };
 
-const updateBase = (
-  base: BaseSchema,
-  units: UnitCollection,
-  bases: BaseCollection,
-  modules: ModuleCollection,
-  dt: number,
+const applyDamage = (
+  target: AttackTarget,
+  damage: number,
+  attackerOwnerId: string,
+  onEntityDestroyed?: SimContext["onEntityDestroyed"],
 ) => {
-  if (base.weaponCooldownLeft > 0) {
-    base.weaponCooldownLeft = Math.max(0, base.weaponCooldownLeft - dt);
-  }
-  let hasWeaponModules = false;
-  for (const module of modules.values()) {
-    if (module.baseId !== base.id || module.moduleType !== "WEAPON_TURRET") {
-      continue;
-    }
-    if (!module.active) {
-      continue;
-    }
-    hasWeaponModules = true;
-    if (module.weaponCooldownLeft > 0) {
-      module.weaponCooldownLeft = Math.max(0, module.weaponCooldownLeft - dt);
-      continue;
-    }
-    const stats =
-      BASE_WEAPON_STATS[module.weaponType as WeaponType] ??
-      BASE_WEAPON_STATS.LASER;
-    let closest: AttackTarget | null = null;
-    let closestDistance = 0;
-    for (const target of units.values()) {
-      if (!isEnemyBase(base, target) || target.hp <= 0) {
-        continue;
-      }
-      const dist = distance(module.x, module.z, target.x, target.z);
-      if (dist > stats.weaponRange) {
-        continue;
-      }
-      if (!closest || dist < closestDistance) {
-        closest = target;
-        closestDistance = dist;
-      }
-    }
-    for (const target of bases.values()) {
-      if (target.id === base.id || !isEnemyBase(base, target) || target.hp <= 0) {
-        continue;
-      }
-      const dist = distance(module.x, module.z, target.x, target.z);
-      if (dist > stats.weaponRange) {
-        continue;
-      }
-      if (!closest || dist < closestDistance) {
-        closest = target;
-        closestDistance = dist;
-      }
-    }
-    if (!closest) {
-      continue;
-    }
-    module.weaponCooldownLeft = stats.weaponCooldown;
-    let remainingDamage = stats.weaponDamage;
-    if (closest.shields > 0) {
-      const absorbed = Math.min(closest.shields, remainingDamage);
-      closest.shields = Math.max(0, closest.shields - absorbed);
-      remainingDamage -= absorbed;
-    }
-    if (remainingDamage > 0) {
-      closest.hp = Math.max(0, closest.hp - remainingDamage);
-    }
-  }
-  if (!hasWeaponModules) {
+  let remainingDamage = Math.max(0, damage);
+  if (remainingDamage <= 0) {
     return;
+  }
+  if (target.shields > 0) {
+    const absorbed = Math.min(target.shields, remainingDamage);
+    target.shields = Math.max(0, target.shields - absorbed);
+    remainingDamage -= absorbed;
+  }
+  if (remainingDamage > 0) {
+    const hpBeforeDamage = target.hp;
+    target.hp = Math.max(0, target.hp - remainingDamage);
+    if (hpBeforeDamage > 0 && target.hp === 0) {
+      onEntityDestroyed?.({
+        attackerOwnerId,
+        defenderOwnerId: target.owner,
+        entityType: "unitType" in target ? "UNIT" : "BASE",
+        entityId: target.id,
+      });
+    }
   }
 };
 
