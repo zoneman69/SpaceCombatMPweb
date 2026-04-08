@@ -117,8 +117,6 @@ const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
 const CAMERA_RADIUS_MAX = 900;
 const MOVE_EPSILON = 0.25;
-const MOBILE_JOYSTICK_RADIUS = 44;
-const MOBILE_JOYSTICK_MAX_DISTANCE = 34;
 const THRUSTER_SPEED_THRESHOLD = 0.45;
 const THRUSTER_MAX_SCALE_Z = 1.6;
 const RESOURCE_COLLECTOR_COST = 100;
@@ -763,9 +761,9 @@ export default function TacticalView({
     const collectorWeaponGeometry = new THREE.CylinderGeometry(0.2, 0.2, 1.7, 12);
     collectorWeaponGeometry.rotateZ(Math.PI / 2);
     const thrusterGeometry = new THREE.ConeGeometry(0.3, 1.5, 10);
-    // Thruster flame should point backward on the ship's local X axis.
-    thrusterGeometry.rotateZ(-Math.PI / 2);
-    thrusterGeometry.translate(-0.75, 0, 0);
+    thrusterGeometry.rotateX(Math.PI / 2);
+    // Keep the cone tip anchored at the mount and extend the flame backward.
+    thrusterGeometry.translate(0, 0, 0.75);
 
     const createThrusters = (unit: UnitSchema | DebugUnit) => {
       if (!("unitType" in unit)) {
@@ -786,6 +784,8 @@ export default function TacticalView({
           }),
         );
         thruster.position.copy(offset);
+        // Rotate only the thruster effect by 90°; this does not alter unit orientation.
+        thruster.rotation.y = Math.PI / 2;
         thruster.visible = false;
         return thruster;
       });
@@ -980,10 +980,7 @@ export default function TacticalView({
       const sockets: { name: string; position: THREE.Vector3 }[] = [];
       gltf.scene.traverse((object) => {
         const normalizedName = object.name.toLowerCase();
-        if (
-          !normalizedName.startsWith("socket_") &&
-          !normalizedName.startsWith("main_")
-        ) {
+        if (!normalizedName.startsWith("socket_")) {
           return;
         }
         const worldPosition = new THREE.Vector3();
@@ -1221,12 +1218,12 @@ export default function TacticalView({
         }
         const fighterThrusterSockets = fighterModelData.sockets
           .filter((socket) =>
-            socket.name.toLowerCase().startsWith("main_thruster_mount_"),
+            socket.name.toLowerCase().startsWith("socket_thruster_"),
           )
           .sort(
             (a, b) =>
-              parseSocketOrder(a.name, "main_thruster_mount") -
-              parseSocketOrder(b.name, "main_thruster_mount"),
+              parseSocketOrder(a.name, "socket_thruster") -
+              parseSocketOrder(b.name, "socket_thruster"),
           )
           .map((socket) => socket.position)
           .filter((socket) => isSocketPositionUsable(socket));
@@ -1300,11 +1297,11 @@ export default function TacticalView({
           usableCollectorWeaponSocket?.position.clone() ??
           defaultCollectorWeaponMountPoint.clone();
         const collectorTankSockets = collectorModelData.sockets
-          .filter((socket) => socket.name.toLowerCase().startsWith("socket_tank_"))
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_container_"))
           .sort(
             (a, b) =>
-              parseSocketOrder(a.name, "socket_tank") -
-              parseSocketOrder(b.name, "socket_tank"),
+              parseSocketOrder(a.name, "socket_container") -
+              parseSocketOrder(b.name, "socket_container"),
           )
           .map((socket) => socket.position);
         const usableCollectorTankSockets = collectorTankSockets
@@ -1318,12 +1315,12 @@ export default function TacticalView({
         }
         const collectorThrusterSockets = collectorModelData.sockets
           .filter((socket) =>
-            socket.name.toLowerCase().startsWith("main_thruster_mount_"),
+            socket.name.toLowerCase().startsWith("socket_thruster_"),
           )
           .sort(
             (a, b) =>
-              parseSocketOrder(a.name, "main_thruster_mount") -
-              parseSocketOrder(b.name, "main_thruster_mount"),
+              parseSocketOrder(a.name, "socket_thruster") -
+              parseSocketOrder(b.name, "socket_thruster"),
           )
           .map((socket) => socket.position)
           .filter((socket) => isSocketPositionUsable(socket));
