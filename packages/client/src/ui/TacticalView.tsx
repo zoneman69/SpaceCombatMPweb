@@ -28,6 +28,7 @@ type UnitRender = {
   thrusters: THREE.Mesh[];
   attachmentSignature: string;
   usesImportedMaterial: boolean;
+  fighterModelVariant: "base" | "lasers" | null;
   selectionOutline: THREE.LineSegments | null;
   selectionOutlineGeometrySource: string | null;
 };
@@ -328,6 +329,7 @@ const WEAPON_TYPES = [
   "SMART_MISSILE",
 ] as const;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
+const FIGHTER_LASERS_MODEL_PATH = "assets/models/fighter_lasers.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
 const STORAGE_CONTAINER_MODEL_PATH = "assets/models/storage_container.glb";
 const FIGHTER_MODEL_TARGET_SIZE = 9;
@@ -700,12 +702,18 @@ export default function TacticalView({
     fighterGeometry.rotateZ(-Math.PI / 2);
     fighterGeometry.translate(0.8, 0, 0);
     const fighterModelUrl = resolveRuntimeAssetUrl(FIGHTER_MODEL_PATH);
+    const fighterLasersModelUrl = resolveRuntimeAssetUrl(FIGHTER_LASERS_MODEL_PATH);
     const collectorModelUrl = resolveRuntimeAssetUrl(COLLECTOR_MODEL_PATH);
     const storageContainerModelUrl = resolveRuntimeAssetUrl(STORAGE_CONTAINER_MODEL_PATH);
     let loadedFighterGeometry: THREE.BufferGeometry | null = null;
+    let loadedFighterLasersGeometry: THREE.BufferGeometry | null = null;
     let loadedCollectorGeometry: THREE.BufferGeometry | null = null;
     let loadedStorageContainerGeometry: THREE.BufferGeometry | null = null;
     let loadedFighterMaterial:
+      | THREE.Material
+      | THREE.Material[]
+      | null = null;
+    let loadedFighterLasersMaterial:
       | THREE.Material
       | THREE.Material[]
       | null = null;
@@ -726,9 +734,32 @@ export default function TacticalView({
 
     const getUnitGeometry = (unit: UnitSchema | DebugUnit) => {
       if ("unitType" in unit && unit.unitType === "FIGHTER") {
+        if ((unit.weaponMounts ?? 0) > 0 && loadedFighterLasersGeometry) {
+          return loadedFighterLasersGeometry;
+        }
         return loadedFighterGeometry ?? fighterGeometry;
       }
       return loadedCollectorGeometry ?? collectorGeometry;
+    };
+    const getFighterModelVariant = (unit: UnitSchema | DebugUnit) => {
+      if (!("unitType" in unit) || unit.unitType !== "FIGHTER") {
+        return null;
+      }
+      return (unit.weaponMounts ?? 0) > 0 && loadedFighterLasersGeometry
+        ? "lasers"
+        : "base";
+    };
+    const getImportedUnitMaterial = (unit: UnitSchema | DebugUnit) => {
+      if ("unitType" in unit && unit.unitType === "FIGHTER") {
+        if ((unit.weaponMounts ?? 0) > 0 && loadedFighterLasersMaterial) {
+          return loadedFighterLasersMaterial;
+        }
+        return loadedFighterMaterial;
+      }
+      if ("unitType" in unit && unit.unitType === "RESOURCE_COLLECTOR") {
+        return loadedCollectorMaterial;
+      }
+      return null;
     };
     const defaultFighterWeaponMountPoints = [
       new THREE.Vector3(0.8, 0.2, -0.9),
@@ -1049,12 +1080,7 @@ export default function TacticalView({
       if (meshesRef.current.has(unit.id)) {
         return;
       }
-      const importedMaterial =
-        "unitType" in unit && unit.unitType === "FIGHTER"
-          ? loadedFighterMaterial
-          : "unitType" in unit && unit.unitType === "RESOURCE_COLLECTOR"
-            ? loadedCollectorMaterial
-            : null;
+      const importedMaterial = getImportedUnitMaterial(unit);
       const usesImportedMaterial = !!importedMaterial;
       const material = importedMaterial
         ? cloneMaterialSet(importedMaterial)
@@ -1084,6 +1110,7 @@ export default function TacticalView({
         thrusters,
         attachmentSignature: "",
         usesImportedMaterial,
+        fighterModelVariant: getFighterModelVariant(unit),
         selectionOutline: null,
         selectionOutlineGeometrySource: null,
       };
@@ -1093,7 +1120,7 @@ export default function TacticalView({
 
     const applyLoadedFighterGeometry = () => {
       const units = unitsRef.current;
-      if (!units || !loadedFighterGeometry) {
+      if (!units || (!loadedFighterGeometry && !loadedFighterLasersGeometry)) {
         return;
       }
       units.forEach((unit) => {
@@ -1105,10 +1132,12 @@ export default function TacticalView({
           return;
         }
         render.mesh.geometry.dispose();
-        render.mesh.geometry = loadedFighterGeometry.clone();
-        if (loadedFighterMaterial) {
+        render.mesh.geometry = getUnitGeometry(unit).clone();
+        render.fighterModelVariant = getFighterModelVariant(unit);
+        const importedMaterial = getImportedUnitMaterial(unit);
+        if (importedMaterial) {
           disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
-          render.mesh.material = cloneMaterialSet(loadedFighterMaterial);
+          render.mesh.material = cloneMaterialSet(importedMaterial);
           render.usesImportedMaterial = true;
         }
         if (render.selectionOutline) {
@@ -1352,6 +1381,49 @@ export default function TacticalView({
       }
     };
 
+    const loadFighterLasersModel = async () => {
+      const loader = new GLTFLoader();
+      try {
+        const gltf = await loader.loadAsync(fighterLasersModelUrl);
+        if (isDisposed) {
+          return;
+        }
+        inspectModelMeshMaterials(gltf, "fighter_lasers");
+        let fighterMesh: THREE.Mesh | null = null;
+        gltf.scene.traverse((object) => {
+          if (!fighterMesh && object instanceof THREE.Mesh && object.material) {
+            fighterMesh = object;
+          }
+        });
+        if (!fighterMesh) {
+          console.warn(
+            `[tactical] fighter_lasers model at ${fighterLasersModelUrl} had no mesh; using weapon pod fallback`,
+          );
+          return;
+        }
+        loadedFighterLasersGeometry?.dispose();
+        const fighterModelData = extractNormalizedModelData(
+          gltf,
+          fighterMesh,
+          FIGHTER_MODEL_TARGET_SIZE,
+        );
+        loadedFighterLasersGeometry = fighterModelData.geometry;
+        disposeMaterialSet(loadedFighterLasersMaterial);
+        loadedFighterLasersMaterial = cloneMaterialSet(
+          fighterMesh.material as THREE.Material | THREE.Material[],
+        );
+        applyLoadedFighterGeometry();
+        console.log(
+          `[tactical] loaded fighter_lasers GLB model from ${fighterLasersModelUrl}`,
+        );
+      } catch (error) {
+        console.warn(
+          `[tactical] failed to load fighter_lasers GLB model from ${fighterLasersModelUrl}; using weapon pod fallback`,
+          error,
+        );
+      }
+    };
+
     const loadStorageContainerModel = async () => {
       const loader = new GLTFLoader();
       try {
@@ -1431,6 +1503,7 @@ export default function TacticalView({
     };
 
     void loadFighterModel();
+    void loadFighterLasersModel();
     void loadCollectorModel();
     void loadStorageContainerModel();
 
@@ -1786,6 +1859,23 @@ export default function TacticalView({
             unit.owner === localSessionIdRef.current
               ? UNIT_COLORS.friendly
               : UNIT_COLORS.enemy;
+          if ("unitType" in unit && unit.unitType === "FIGHTER") {
+            const variant = getFighterModelVariant(unit);
+            if (variant !== render.fighterModelVariant) {
+              render.mesh.geometry.dispose();
+              render.mesh.geometry = getUnitGeometry(unit).clone();
+              render.fighterModelVariant = variant;
+              const importedMaterial = getImportedUnitMaterial(unit);
+              if (importedMaterial) {
+                disposeMaterialSet(
+                  render.mesh.material as THREE.Material | THREE.Material[],
+                );
+                render.mesh.material = cloneMaterialSet(importedMaterial);
+                render.usesImportedMaterial = true;
+              }
+              render.attachmentSignature = "";
+            }
+          }
           updateUnitAttachments(unit, render, tint);
         });
       }
@@ -2075,9 +2165,11 @@ export default function TacticalView({
       renderer.dispose();
       fighterGeometry.dispose();
       loadedFighterGeometry?.dispose();
+      loadedFighterLasersGeometry?.dispose();
       loadedCollectorGeometry?.dispose();
       loadedStorageContainerGeometry?.dispose();
       disposeMaterialSet(loadedFighterMaterial);
+      disposeMaterialSet(loadedFighterLasersMaterial);
       disposeMaterialSet(loadedCollectorMaterial);
       collectorGeometry.dispose();
       fighterWeaponGeometry.dispose();
