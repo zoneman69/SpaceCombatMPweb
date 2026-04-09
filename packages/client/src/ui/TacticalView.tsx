@@ -98,6 +98,7 @@ const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
 const CAMERA_RADIUS_MAX = 900;
+const FIGHTER_WEAPON_MOUNT_CAP = 2;
 const MOVE_EPSILON = 0.25;
 const THRUSTER_SPEED_THRESHOLD = 0.45;
 const THRUSTER_MAX_SCALE_Z = 1.6;
@@ -738,7 +739,6 @@ export default function TacticalView({
     const defaultFighterWeaponMountPoints = [
       new THREE.Vector3(0.8, 0.2, -0.9),
       new THREE.Vector3(0.8, 0.2, 0.9),
-      new THREE.Vector3(-0.1, 0.35, 0),
     ];
     const defaultFighterMuzzleMountPoints = [
       defaultFighterWeaponMountPoints[0].clone(),
@@ -811,6 +811,16 @@ export default function TacticalView({
       render.thrusters.forEach((thruster) => render.mesh.add(thruster));
     };
 
+    const normalizeFighterMountPoints = (mountPoints: THREE.Vector3[]) => {
+      const normalized = mountPoints
+        .slice(0, FIGHTER_WEAPON_MOUNT_CAP)
+        .map((point) => point.clone());
+      while (normalized.length < FIGHTER_WEAPON_MOUNT_CAP) {
+        normalized.push(defaultFighterWeaponMountPoints[normalized.length].clone());
+      }
+      return normalized;
+    };
+
     const updateUnitAttachments = (
       unit: UnitSchema | DebugUnit,
       render: UnitRender,
@@ -824,7 +834,7 @@ export default function TacticalView({
       const weaponMounts =
         unit.unitType === "RESOURCE_COLLECTOR"
           ? Math.max(0, Math.min(1, unit.weaponMounts ?? 0))
-          : Math.max(0, Math.min(fighterWeaponMountPoints.length, unit.weaponMounts ?? 0));
+          : Math.max(0, Math.min(FIGHTER_WEAPON_MOUNT_CAP, unit.weaponMounts ?? 0));
       const signature = `${unit.unitType}:${tankCount}:${weaponMounts}`;
       if (signature === render.attachmentSignature) {
         return;
@@ -913,7 +923,11 @@ export default function TacticalView({
                 roughness: 0.5,
               }),
           );
-          pod.position.copy(fighterWeaponMountPoints[index]);
+          const mountPoint =
+            fighterWeaponMountPoints[index] ??
+            defaultFighterWeaponMountPoints[index] ??
+            defaultFighterWeaponMountPoints[defaultFighterWeaponMountPoints.length - 1];
+          pod.position.copy(mountPoint);
           render.attachmentGroup.add(pod);
         }
       }
@@ -1319,14 +1333,18 @@ export default function TacticalView({
           .map((socket) => socket.position)
           .filter((socket) => isSocketPositionUsable(socket));
         if (fighterSockets.length > 0) {
-          fighterWeaponMountPoints = fighterSockets;
-          fighterMuzzleMountPoints = fighterSockets;
+          fighterWeaponMountPoints = normalizeFighterMountPoints(fighterSockets);
+          fighterMuzzleMountPoints = normalizeFighterMountPoints(fighterSockets);
           console.log(
             `[tactical] using ${fighterSockets.length} fighter weapon sockets from model`,
           );
         } else {
-          fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
-          fighterMuzzleMountPoints = [...defaultFighterMuzzleMountPoints];
+          fighterWeaponMountPoints = normalizeFighterMountPoints(
+            defaultFighterWeaponMountPoints,
+          );
+          fighterMuzzleMountPoints = normalizeFighterMountPoints(
+            defaultFighterMuzzleMountPoints,
+          );
         }
         const fighterThrusterSockets = fighterModelData.sockets
           .filter((socket) =>
@@ -1494,7 +1512,7 @@ export default function TacticalView({
           .map((socket) => socket.position)
           .filter((socket) => isSocketPositionUsable(socket));
         if (fighterMuzzleSockets.length > 0) {
-          fighterMuzzleMountPoints = fighterMuzzleSockets;
+          fighterMuzzleMountPoints = normalizeFighterMountPoints(fighterMuzzleSockets);
         }
         applyLoadedFighterGeometry();
         console.log(
