@@ -974,11 +974,17 @@ export default function TacticalView({
       return position.lengthSq() <= 15 ** 2;
     };
 
+    type NormalizedModelData = {
+      geometry: THREE.BufferGeometry;
+      sockets: { name: string; position: THREE.Vector3 }[];
+      materials?: THREE.Material[];
+    };
+
     const extractNormalizedModelData = (
       gltf: GLTF,
       mesh: THREE.Mesh,
       targetSize: number,
-    ) => {
+    ): NormalizedModelData => {
       const geometry = mesh.geometry.clone();
       gltf.scene.updateMatrixWorld(true);
       geometry.applyMatrix4(mesh.matrixWorld);
@@ -1013,9 +1019,13 @@ export default function TacticalView({
 
       return { geometry, sockets };
     };
-    const extractNormalizedModelDataFromScene = (gltf: GLTF, targetSize: number) => {
+    const extractNormalizedModelDataFromScene = (
+      gltf: GLTF,
+      targetSize: number,
+    ): NormalizedModelData | null => {
       gltf.scene.updateMatrixWorld(true);
       const transformedGeometries: THREE.BufferGeometry[] = [];
+      const sceneMaterials: THREE.Material[] = [];
       gltf.scene.traverse((object) => {
         if (!(object instanceof THREE.Mesh)) {
           return;
@@ -1023,6 +1033,12 @@ export default function TacticalView({
         const geometry = object.geometry as THREE.BufferGeometry | undefined;
         if (!geometry) {
           return;
+        }
+        const objectMaterial = Array.isArray(object.material)
+          ? object.material[0]
+          : object.material;
+        if (objectMaterial instanceof THREE.Material) {
+          sceneMaterials.push(objectMaterial);
         }
         const transformed = geometry.index ? geometry.toNonIndexed() : geometry.clone();
         transformed.applyMatrix4(object.matrixWorld);
@@ -1043,7 +1059,7 @@ export default function TacticalView({
           return radius > largestRadius ? geometry : largest;
         }, null) ?? transformedGeometries[0];
       const mergedGeometry =
-        mergeGeometries(transformedGeometries) ?? largestGeometry.clone();
+        mergeGeometries(transformedGeometries, true) ?? largestGeometry.clone();
       transformedGeometries.forEach((geometry) => geometry.dispose());
       mergedGeometry.computeBoundingBox();
       const box = mergedGeometry.boundingBox;
@@ -1075,7 +1091,7 @@ export default function TacticalView({
           position: local.multiplyScalar(scale).sub(scaledCenter),
         });
       });
-      return { geometry: mergedGeometry, sockets };
+      return { geometry: mergedGeometry, sockets, materials: sceneMaterials };
     };
 
     const cloneMaterialSet = (
@@ -1297,9 +1313,10 @@ export default function TacticalView({
           );
         loadedFighterGeometry = fighterModelData.geometry;
         disposeMaterialSet(loadedFighterMaterial);
-        loadedFighterMaterial = cloneMaterialSet(
-          fighterMesh.material as THREE.Material | THREE.Material[],
-        );
+        loadedFighterMaterial =
+          fighterModelData.materials && fighterModelData.materials.length > 0
+            ? cloneMaterialSet(fighterModelData.materials)
+            : cloneMaterialSet(fighterMesh.material as THREE.Material | THREE.Material[]);
         const fighterSockets = fighterModelData.sockets
           .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
           .sort(
@@ -1462,16 +1479,31 @@ export default function TacticalView({
           return;
         }
         loadedFighterLasersGeometry?.dispose();
-        const fighterModelData = extractNormalizedModelData(
-          gltf,
-          fighterMesh,
-          FIGHTER_MODEL_TARGET_SIZE,
-        );
+        const fighterModelData =
+          extractNormalizedModelDataFromScene(gltf, FIGHTER_MODEL_TARGET_SIZE) ??
+          extractNormalizedModelData(
+            gltf,
+            fighterMesh,
+            FIGHTER_MODEL_TARGET_SIZE,
+          );
         loadedFighterLasersGeometry = fighterModelData.geometry;
         disposeMaterialSet(loadedFighterLasersMaterial);
-        loadedFighterLasersMaterial = cloneMaterialSet(
-          fighterMesh.material as THREE.Material | THREE.Material[],
-        );
+        loadedFighterLasersMaterial =
+          fighterModelData.materials && fighterModelData.materials.length > 0
+            ? cloneMaterialSet(fighterModelData.materials)
+            : cloneMaterialSet(fighterMesh.material as THREE.Material | THREE.Material[]);
+        const fighterMuzzleSockets = fighterModelData.sockets
+          .filter((socket) => socket.name.toLowerCase().startsWith("socket_weapon_"))
+          .sort(
+            (a, b) =>
+              parseSocketOrder(a.name, "socket_weapon") -
+              parseSocketOrder(b.name, "socket_weapon"),
+          )
+          .map((socket) => socket.position)
+          .filter((socket) => isSocketPositionUsable(socket));
+        if (fighterMuzzleSockets.length > 0) {
+          fighterMuzzleMountPoints = fighterMuzzleSockets;
+        }
         applyLoadedFighterGeometry();
         console.log(
           `[tactical] loaded fighter_lasers GLB model from ${fighterLasersModelUrl}`,
