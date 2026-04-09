@@ -724,6 +724,38 @@ body.tactical-view-scroll-locked {
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+.lab-tech-flow {
+  display: grid;
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.lab-tech-lane {
+  border: 1px solid rgba(125, 211, 252, 0.22);
+  border-radius: 12px;
+  background: rgba(15, 23, 42, 0.3);
+  padding: 10px;
+}
+
+.lab-tech-lane-header {
+  display: grid;
+  gap: 4px;
+}
+
+.lab-tech-lane-title {
+  margin: 0;
+  font-size: 0.94rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: #bae6fd;
+}
+
+.lab-upgrade-panel {
+  margin-top: 14px;
+  border-top: 1px solid rgba(147, 197, 253, 0.25);
+  padding-top: 10px;
+}
+
 .lab-tech-card {
   border: 1px solid rgba(147, 197, 253, 0.3);
   border-radius: 12px;
