@@ -51,13 +51,17 @@ const BASE_STARTING_SHIELDS = 200;
 const BASE_STARTING_WEAPON_MOUNTS = 1;
 const RESOURCE_COLLECTOR_COST = 100;
 const FIGHTER_COST = 150;
-const UNIT_WEAPON_MOUNT_COST = 80;
 const MODULE_TECH_SHOP_COST = 240;
 const MODULE_REPAIR_BAY_COST = 200;
 const MODULE_GARAGE_COST = 260;
 const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
+const GARAGE_INSTALL_RANGE = MODULE_INTERACTION_RANGE;
+const GARAGE_INSTALL_WEAPON_COST = 80;
+const GARAGE_INSTALL_WEAPON_DURATION = 10;
+const GARAGE_INSTALL_TECH_COST = 90;
+const GARAGE_INSTALL_TECH_DURATION = 12;
 const RESEARCH_PREREQ_BASE_MODULE = "RESEARCH_LAB";
 const REPAIR_BAY_SUPPORT_RANGE = 18;
 const REPAIR_BAY_MODULE_RANGE = 5;
@@ -133,6 +137,9 @@ const UNIT_CONFIG: Record<
     shieldCapacity: 75,
   },
 };
+
+type GarageInstallType = "WEAPON" | "TECH";
+type TechPackageKey = "SHIELDS" | "HULL" | "SPEED" | "RADAR" | "WEAPON";
 
 type BaseResearchKey =
   | "researchRepairBay"
@@ -372,12 +379,16 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     );
 
     this.onMessage(
-      "module:garageWeapon",
+      "module:garageInstall",
       (
         client,
-        payload: { moduleId?: string; unitId?: string; weaponType?: string },
+        payload: {
+          unitId?: string;
+          installType?: GarageInstallType;
+          optionKey?: string;
+        },
       ) => {
-        this.handleGarageWeaponUpgrade(client, payload);
+        this.handleGarageInstallRequest(client, payload);
       },
     );
 
@@ -717,6 +728,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.processCollectorHarvesting();
     this.processRepairBays(dt);
     this.processResearch(dt);
+    this.processGarageInstalls(dt);
   }
 
   private updateAiPlayers(dt: number) {
@@ -2051,47 +2063,208 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     });
   }
 
-  private handleGarageWeaponUpgrade(
+  private handleGarageInstallRequest(
     client: Colyseus.Client,
-    payload: { moduleId?: string; unitId?: string; weaponType?: string },
+    payload: {
+      unitId?: string;
+      installType?: GarageInstallType;
+      optionKey?: string;
+    },
   ) {
-    const moduleId = payload?.moduleId;
     const unitId = payload?.unitId;
-    const weaponType = payload?.weaponType ?? "";
-    if (!moduleId || !unitId || !weaponType) {
+    const installType = payload?.installType;
+    const optionKey = payload?.optionKey ?? "";
+    if (!unitId || !installType || !optionKey) {
       return;
     }
-    if (!WEAPON_STATS[weaponType]) {
-      return;
-    }
-    const module = this.state.modules.get(moduleId);
     const unit = this.state.units.get(unitId);
-    if (
-      !module ||
-      module.owner !== client.sessionId ||
-      module.moduleType !== "GARAGE" ||
-      !unit ||
-      unit.owner !== client.sessionId
-    ) {
+    if (!unit || unit.owner !== client.sessionId) {
       return;
     }
-    const base = this.state.bases.get(module.baseId);
+    if (unit.installState === "QUEUED" || unit.installState === "INSTALLING") {
+      return;
+    }
+    const garage = this.getClosestOwnedModule(client.sessionId, "GARAGE", unit.x, unit.z);
+    if (!garage) {
+      return;
+    }
+    const base = this.state.bases.get(garage.baseId);
     if (!base || base.owner !== client.sessionId) {
       return;
     }
-    const dist = Math.hypot(module.x - unit.x, module.z - unit.z);
-    if (dist > MODULE_INTERACTION_RANGE) {
+
+    const { cost, durationSeconds, applied } = this.getGarageInstallConfig(
+      base,
+      unit,
+      installType,
+      optionKey,
+    );
+    if (!applied || base.resourceStock < cost) {
       return;
     }
-    if (base.resourceStock < UNIT_WEAPON_MOUNT_COST) {
+
+    base.resourceStock -= cost;
+    unit.pendingInstallType = installType;
+    unit.pendingInstallKey = optionKey;
+    unit.pendingInstallGarageId = garage.id;
+    unit.pendingInstallDuration = durationSeconds;
+    unit.installTimeRemaining = durationSeconds;
+    unit.installState = "QUEUED";
+    unit.orderType = "RETURN_TO_GARAGE";
+    unit.orderTargetId = garage.id;
+    unit.orderX = garage.x;
+    unit.orderZ = garage.z;
+  }
+
+  private getGarageInstallConfig(
+    base: BaseSchema,
+    unit: UnitSchema,
+    installType: GarageInstallType,
+    optionKey: string,
+  ): { cost: number; durationSeconds: number; applied: boolean } {
+    if (installType === "WEAPON") {
+      if (!WEAPON_STATS[optionKey] || !this.isWeaponResearched(base, optionKey)) {
+        return { cost: 0, durationSeconds: 0, applied: false };
+      }
+      const nextMountCount = Math.min(MAX_UNIT_WEAPON_MOUNTS, unit.weaponMounts + 1);
+      const noChange = unit.weaponType === optionKey && nextMountCount === unit.weaponMounts;
+      return {
+        cost: GARAGE_INSTALL_WEAPON_COST,
+        durationSeconds: GARAGE_INSTALL_WEAPON_DURATION,
+        applied: !noChange,
+      };
+    }
+    const techKey = optionKey as TechPackageKey;
+    if (!this.canInstallTechPackage(base, unit, techKey)) {
+      return { cost: 0, durationSeconds: 0, applied: false };
+    }
+    return {
+      cost: GARAGE_INSTALL_TECH_COST,
+      durationSeconds: GARAGE_INSTALL_TECH_DURATION,
+      applied: true,
+    };
+  }
+
+  private canInstallTechPackage(base: BaseSchema, unit: UnitSchema, techKey: TechPackageKey) {
+    if ((unit.techSlotsUsed ?? 0) >= (unit.techMounts ?? 0)) {
+      return false;
+    }
+    switch (techKey) {
+      case "SHIELDS":
+        return base.researchShields && !unit.techShieldPackage;
+      case "HULL":
+        return base.researchHull && !unit.techHullPackage;
+      case "SPEED":
+        return base.researchSpeed && !unit.techSpeedPackage;
+      case "RADAR":
+        return base.researchRadar && !unit.techRadarPackage;
+      case "WEAPON":
+        return base.researchWeaponLevel1 && !unit.techWeaponPackage;
+      default:
+        return false;
+    }
+  }
+
+  private applyGarageInstall(unit: UnitSchema) {
+    if (unit.pendingInstallType === "WEAPON") {
+      if (WEAPON_STATS[unit.pendingInstallKey]) {
+        unit.weaponType = unit.pendingInstallKey;
+        unit.weaponMounts = Math.min(MAX_UNIT_WEAPON_MOUNTS, unit.weaponMounts + 1);
+      }
       return;
     }
-    if (!this.isWeaponResearched(base, weaponType)) {
+    const techKey = unit.pendingInstallKey as TechPackageKey;
+    if ((unit.techSlotsUsed ?? 0) >= (unit.techMounts ?? 0)) {
       return;
     }
-    unit.weaponType = weaponType;
-    unit.weaponMounts = Math.min(MAX_UNIT_WEAPON_MOUNTS, unit.weaponMounts + 1);
-    base.resourceStock -= UNIT_WEAPON_MOUNT_COST;
+    switch (techKey) {
+      case "SHIELDS":
+        if (unit.techShieldPackage) return;
+        unit.techShieldPackage = true;
+        unit.maxShields += 25;
+        unit.shields = Math.min(unit.maxShields, unit.shields + 25);
+        unit.techSlotsUsed += 1;
+        break;
+      case "HULL":
+        if (unit.techHullPackage) return;
+        unit.techHullPackage = true;
+        unit.maxHp += 35;
+        unit.hp = Math.min(unit.maxHp, unit.hp + 35);
+        unit.techSlotsUsed += 1;
+        break;
+      case "SPEED":
+        if (unit.techSpeedPackage) return;
+        unit.techSpeedPackage = true;
+        unit.speedBonus += 2;
+        unit.techSlotsUsed += 1;
+        break;
+      case "RADAR":
+        if (unit.techRadarPackage) return;
+        unit.techRadarPackage = true;
+        unit.radarRangeBonus += 10;
+        unit.techSlotsUsed += 1;
+        break;
+      case "WEAPON":
+        if (unit.techWeaponPackage) return;
+        unit.techWeaponPackage = true;
+        unit.weaponDamageBonus += 2;
+        unit.techSlotsUsed += 1;
+        break;
+      default:
+        break;
+    }
+  }
+
+  private processGarageInstalls(dt: number) {
+    for (const unit of this.state.units.values()) {
+      if (
+        unit.installState !== "QUEUED" &&
+        unit.installState !== "INSTALLING"
+      ) {
+        continue;
+      }
+      const garage = this.state.modules.get(unit.pendingInstallGarageId);
+      if (!garage || garage.moduleType !== "GARAGE") {
+        unit.pendingInstallType = "";
+        unit.pendingInstallKey = "";
+        unit.pendingInstallGarageId = "";
+        unit.pendingInstallDuration = 0;
+        unit.installTimeRemaining = 0;
+        unit.installState = "IDLE";
+        continue;
+      }
+      const distanceToGarage = Math.hypot(unit.x - garage.x, unit.z - garage.z);
+      if (distanceToGarage > GARAGE_INSTALL_RANGE) {
+        unit.orderType = "RETURN_TO_GARAGE";
+        unit.orderTargetId = garage.id;
+        unit.orderX = garage.x;
+        unit.orderZ = garage.z;
+        continue;
+      }
+      if (unit.installState === "QUEUED") {
+        unit.installState = "INSTALLING";
+        unit.installTimeRemaining = Math.max(
+          unit.installTimeRemaining,
+          unit.pendingInstallDuration,
+        );
+      }
+      unit.orderType = "STOP";
+      unit.orderTargetId = "";
+      unit.vx = 0;
+      unit.vz = 0;
+      unit.installTimeRemaining = Math.max(0, unit.installTimeRemaining - dt);
+      if (unit.installTimeRemaining > 0) {
+        continue;
+      }
+      this.applyGarageInstall(unit);
+      unit.pendingInstallType = "";
+      unit.pendingInstallKey = "";
+      unit.pendingInstallGarageId = "";
+      unit.pendingInstallDuration = 0;
+      unit.installState = "IDLE";
+      unit.installTimeRemaining = 0;
+      unit.orderType = "STOP";
+    }
   }
 
   private handleTechUpgrade(

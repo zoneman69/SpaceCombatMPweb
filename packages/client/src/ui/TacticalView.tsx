@@ -348,6 +348,17 @@ const WEAPON_TYPES = [
   "GAUSS_RAIL",
   "SMART_MISSILE",
 ] as const;
+const TECH_PACKAGE_OPTIONS = [
+  { key: "SHIELDS", label: "Shield Matrix", bonus: "+25 shields" },
+  { key: "HULL", label: "Hull Plating", bonus: "+35 hull" },
+  { key: "SPEED", label: "Engine Tuning", bonus: "+2 top speed" },
+  { key: "RADAR", label: "Radar Suite", bonus: "+10 radar range" },
+  { key: "WEAPON", label: "Targeting Node", bonus: "+2 weapon damage" },
+] as const;
+const GARAGE_INSTALL_WEAPON_COST = 80;
+const GARAGE_INSTALL_WEAPON_DURATION = 10;
+const GARAGE_INSTALL_TECH_COST = 90;
+const GARAGE_INSTALL_TECH_DURATION = 12;
 const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const FIGHTER_LASERS_MODEL_PATH = "assets/models/fighter_lasers.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
@@ -379,6 +390,54 @@ const getCollectorTankUpgradeCount = (unit: UnitSchema | DebugUnit) => {
   return Math.min(
     COLLECTOR_MAX_TANK_UPGRADES,
     Math.floor(capacityDelta / COLLECTOR_TANK_CAPACITY_STEP),
+  );
+};
+
+type GaragePreviewProps = {
+  unitType: "RESOURCE_COLLECTOR" | "FIGHTER";
+  selectedMountId: string | null;
+  onSelectMount: (mountId: string) => void;
+};
+
+const GarageShipPreview = ({
+  unitType,
+  selectedMountId,
+  onSelectMount,
+}: GaragePreviewProps) => {
+  const mountButtonConfig = useMemo(
+    () =>
+      unitType === "FIGHTER"
+        ? [
+            { id: "weapon-slot-1", label: "Weapon hardpoint A", top: "42%", left: "23%" },
+            { id: "weapon-slot-2", label: "Weapon hardpoint B", top: "58%", left: "23%" },
+            { id: "tech-slot-1", label: "Tech mount", top: "50%", left: "56%" },
+          ]
+        : [
+            { id: "weapon-slot-1", label: "Utility mount", top: "50%", left: "28%" },
+            { id: "tech-slot-1", label: "Tech bay", top: "50%", left: "58%" },
+          ],
+    [unitType],
+  );
+  return (
+    <div className="garage-preview">
+      <div className="garage-preview-ship" role="img" aria-label="Ship loadout preview">
+        <div className={`garage-preview-model garage-preview-model--${unitType.toLowerCase()}`} />
+        {mountButtonConfig.map((mount) => (
+          <button
+            key={mount.id}
+            type="button"
+            className={`garage-mount-point ${selectedMountId === mount.id ? "garage-mount-point--active" : ""}`}
+            style={{ top: mount.top, left: mount.left }}
+            onClick={() => onSelectMount(mount.id)}
+          >
+            {mount.label}
+          </button>
+        ))}
+      </div>
+      <p className="mount-meta">
+        Drag to rotate is represented by selectable mount points in this bay view.
+      </p>
+    </div>
   );
 };
 
@@ -493,6 +552,10 @@ export default function TacticalView({
     useState<(typeof WEAPON_TYPES)[number]>("LASER");
   const [isLabModalOpen, setIsLabModalOpen] = useState(false);
   const [isGarageModalOpen, setIsGarageModalOpen] = useState(false);
+  const [isUnitGarageModalOpen, setIsUnitGarageModalOpen] = useState(false);
+  const [selectedGarageMountId, setSelectedGarageMountId] = useState<string | null>(
+    null,
+  );
   const [isUnitModalOpen, setIsUnitModalOpen] = useState(false);
   const [isBaseModalOpen, setIsBaseModalOpen] = useState(false);
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
@@ -3178,6 +3241,11 @@ export default function TacticalView({
       setIsGarageModalOpen(false);
     }
   }, [hasGarage]);
+  useEffect(() => {
+    if (!selectedUnit || !selectedBase) {
+      setIsUnitGarageModalOpen(false);
+    }
+  }, [selectedUnit, selectedBase]);
   const availableWeaponTypes = WEAPON_TYPES.filter((weaponType) => {
     if (!selectedBase) {
       return weaponType === "LASER";
@@ -3294,6 +3362,66 @@ export default function TacticalView({
     selectedUnit && "techMounts" in selectedUnit ? selectedUnit.techMounts : 0;
   const selectedUnitWeaponType =
     selectedUnit && "weaponType" in selectedUnit ? selectedUnit.weaponType : "LASER";
+  const selectedUnitInstallState =
+    selectedUnit && "installState" in selectedUnit ? selectedUnit.installState : "IDLE";
+  const selectedUnitInstallTimeRemaining =
+    selectedUnit && "installTimeRemaining" in selectedUnit
+      ? selectedUnit.installTimeRemaining
+      : 0;
+  const selectedUnitTechSlotsUsed =
+    selectedUnit && "techSlotsUsed" in selectedUnit ? selectedUnit.techSlotsUsed : 0;
+  const selectedUnitHasShieldPackage =
+    selectedUnit && "techShieldPackage" in selectedUnit
+      ? selectedUnit.techShieldPackage
+      : false;
+  const selectedUnitHasHullPackage =
+    selectedUnit && "techHullPackage" in selectedUnit ? selectedUnit.techHullPackage : false;
+  const selectedUnitHasSpeedPackage =
+    selectedUnit && "techSpeedPackage" in selectedUnit
+      ? selectedUnit.techSpeedPackage
+      : false;
+  const selectedUnitHasRadarPackage =
+    selectedUnit && "techRadarPackage" in selectedUnit
+      ? selectedUnit.techRadarPackage
+      : false;
+  const selectedUnitHasWeaponPackage =
+    selectedUnit && "techWeaponPackage" in selectedUnit
+      ? selectedUnit.techWeaponPackage
+      : false;
+  const selectedUnitCanAddWeaponMount =
+    selectedUnitWeaponMounts < MAX_UNIT_WEAPON_MOUNTS;
+  const selectedUnitMountSelectionType = selectedGarageMountId?.startsWith("weapon")
+    ? "WEAPON"
+    : selectedGarageMountId?.startsWith("tech")
+      ? "TECH"
+      : "";
+  const selectedUnitResearchGatedTech = TECH_PACKAGE_OPTIONS.filter((tech) => {
+    if (!selectedBase) {
+      return false;
+    }
+    if (tech.key === "SHIELDS") {
+      return selectedBase.researchShields;
+    }
+    if (tech.key === "HULL") {
+      return selectedBase.researchHull;
+    }
+    if (tech.key === "SPEED") {
+      return selectedBase.researchSpeed;
+    }
+    if (tech.key === "RADAR") {
+      return selectedBase.researchRadar;
+    }
+    return selectedBase.researchWeaponLevel1;
+  });
+  const selectedUnitInstalledTechSet = new Set(
+    [
+      selectedUnitHasShieldPackage ? "SHIELDS" : "",
+      selectedUnitHasHullPackage ? "HULL" : "",
+      selectedUnitHasSpeedPackage ? "SPEED" : "",
+      selectedUnitHasRadarPackage ? "RADAR" : "",
+      selectedUnitHasWeaponPackage ? "WEAPON" : "",
+    ].filter(Boolean),
+  );
   const selectedUnitAtModule =
     selectedUnit && selectedModule
       ? Math.hypot(
@@ -4105,6 +4233,128 @@ export default function TacticalView({
             document.body,
           )
         : null}
+      {isUnitGarageModalOpen && selectedUnit && selectedBase
+        ? createPortal(
+            <div className="lab-modal-backdrop" role="presentation">
+              <div className="lab-modal" role="dialog" aria-modal="true" aria-label="Unit garage">
+                <div className="lab-modal-header">
+                  <div>
+                    <p className="mount-label">Garage</p>
+                    <p className="mount-title">Unit Upgrade Bay</p>
+                  </div>
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => setIsUnitGarageModalOpen(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <p className="hud-copy">
+                  Select a mounting point, choose an option, and the unit will return to the garage
+                  for installation time.
+                </p>
+                <p className="hud-copy">
+                  Install state: {selectedUnitInstallState}
+                  {selectedUnitInstallState !== "IDLE"
+                    ? ` (${Math.ceil(selectedUnitInstallTimeRemaining)}s)`
+                    : ""}
+                </p>
+                <GarageShipPreview
+                  unitType={selectedUnitType}
+                  selectedMountId={selectedGarageMountId}
+                  onSelectMount={(mountId) => setSelectedGarageMountId(mountId)}
+                />
+                {selectedUnitMountSelectionType === "WEAPON" ? (
+                  <div className="lab-tech-grid">
+                    {availableWeaponTypes.map((weaponType) => {
+                      const canInstall =
+                        !!room &&
+                        selectedUnitCanAddWeaponMount &&
+                        selectedUnitInstallState === "IDLE" &&
+                        selectedBase.resourceStock >= GARAGE_INSTALL_WEAPON_COST;
+                      return (
+                        <div className="lab-tech-card" key={weaponType}>
+                          <p className="lab-tech-title">{weaponType}</p>
+                          <p className="mount-meta">
+                            Install to hardpoint · +1 weapon mount
+                          </p>
+                          <p className="mount-meta">
+                            Cost {GARAGE_INSTALL_WEAPON_COST} · Time {GARAGE_INSTALL_WEAPON_DURATION}s
+                          </p>
+                          <button
+                            className="hud-button mount-action"
+                            type="button"
+                            disabled={!canInstall}
+                            onClick={() => {
+                              if (!room || !selectedUnit) {
+                                return;
+                              }
+                              room.send("module:garageInstall", {
+                                unitId: selectedUnit.id,
+                                installType: "WEAPON",
+                                optionKey: weaponType,
+                              });
+                            }}
+                          >
+                            {selectedUnitCanAddWeaponMount
+                              ? `Install ${weaponType}`
+                              : "Weapon mounts full"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+                {selectedUnitMountSelectionType === "TECH" ? (
+                  <div className="lab-tech-grid">
+                    {selectedUnitResearchGatedTech.map((tech) => {
+                      const hasInstalled = selectedUnitInstalledTechSet.has(tech.key);
+                      const hasTechCapacity = selectedUnitTechSlotsUsed < selectedUnitTechMounts;
+                      const canInstall =
+                        !!room &&
+                        !hasInstalled &&
+                        hasTechCapacity &&
+                        selectedUnitInstallState === "IDLE" &&
+                        selectedBase.resourceStock >= GARAGE_INSTALL_TECH_COST;
+                      return (
+                        <div className="lab-tech-card" key={tech.key}>
+                          <p className="lab-tech-title">{tech.label}</p>
+                          <p className="mount-meta">{tech.bonus}</p>
+                          <p className="mount-meta">
+                            Cost {GARAGE_INSTALL_TECH_COST} · Time {GARAGE_INSTALL_TECH_DURATION}s
+                          </p>
+                          <button
+                            className="hud-button mount-action"
+                            type="button"
+                            disabled={!canInstall}
+                            onClick={() => {
+                              if (!room || !selectedUnit) {
+                                return;
+                              }
+                              room.send("module:garageInstall", {
+                                unitId: selectedUnit.id,
+                                installType: "TECH",
+                                optionKey: tech.key,
+                              });
+                            }}
+                          >
+                            {hasInstalled
+                              ? "Installed"
+                              : hasTechCapacity
+                                ? `Install ${tech.label}`
+                                : "Tech mounts full"}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
       {isUnitModalOpen && selectedUnit
         ? createPortal(
             <div className="entity-modal-backdrop" role="presentation">
@@ -4133,6 +4383,12 @@ export default function TacticalView({
                   Weapon {selectedUnitWeaponType} · Mounts{" "}
                   {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Cargo{" "}
                   {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity}
+                </p>
+                <p className="hud-copy">
+                  Garage install: {selectedUnitInstallState}
+                  {selectedUnitInstallState !== "IDLE"
+                    ? ` (${Math.ceil(selectedUnitInstallTimeRemaining)}s)`
+                    : ""}
                 </p>
                 <div className="unit-behavior-panel">
                   <p className="mount-meta">Unit behavior</p>
@@ -4208,10 +4464,8 @@ export default function TacticalView({
                       disabled={!room || selectedUnitIds.length === 0}
                       onClick={() => {
                         setIsUnitModalOpen(false);
-                        room?.send("command", {
-                          t: "RETURN_TO_GARAGE",
-                          unitIds: selectedUnitIds,
-                        });
+                        setSelectedGarageMountId("weapon-slot-1");
+                        setIsUnitGarageModalOpen(true);
                       }}
                     >
                       Return to garage

@@ -32,6 +32,18 @@ export class UnitSchema extends Schema {
   @type("number") weaponDamageBonus = 0;
   @type("number") harvestWaitLeft = 0;
   @type("number") dropoffWaitLeft = 0;
+  @type("number") installTimeRemaining = 0;
+  @type("string") installState = "IDLE";
+  @type("string") pendingInstallType = "";
+  @type("string") pendingInstallKey = "";
+  @type("string") pendingInstallGarageId = "";
+  @type("number") pendingInstallDuration = 0;
+  @type("number") techSlotsUsed = 0;
+  @type("boolean") techShieldPackage = false;
+  @type("boolean") techHullPackage = false;
+  @type("boolean") techSpeedPackage = false;
+  @type("boolean") techRadarPackage = false;
+  @type("boolean") techWeaponPackage = false;
 }
 
 export class BaseSchema extends Schema {
