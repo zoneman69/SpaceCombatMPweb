@@ -322,10 +322,65 @@ body.tactical-view-scroll-locked {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
 }
 
+.tactical-canvas--guard-select {
+  cursor: crosshair;
+}
+
 .tactical-canvas canvas {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.mobile-controls {
+  position: absolute;
+  inset: auto 0 0 0;
+  z-index: 6;
+  padding: 16px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.mobile-joystick {
+  width: 88px;
+  height: 88px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  background: rgba(15, 23, 42, 0.5);
+  display: grid;
+  place-items: center;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.mobile-joystick-knob {
+  width: 46px;
+  height: 46px;
+  border-radius: 999px;
+  border: 1px solid rgba(186, 230, 253, 0.75);
+  background: rgba(56, 189, 248, 0.42);
+  box-shadow: 0 8px 16px rgba(2, 6, 23, 0.35);
+}
+
+.mobile-zoom-controls {
+  display: grid;
+  gap: 10px;
+  pointer-events: auto;
+}
+
+.mobile-zoom-button {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  border: 1px solid rgba(125, 211, 252, 0.7);
+  background: rgba(15, 23, 42, 0.6);
+  color: #e0f2fe;
+  font-size: 1.6rem;
+  line-height: 1;
+  font-weight: 700;
+  touch-action: manipulation;
 }
 
 .selection-box {
@@ -498,6 +553,25 @@ body.tactical-view-scroll-locked {
   cursor: not-allowed;
 }
 
+.hud-button.idle-alert:not(:disabled) {
+  border-color: rgba(248, 113, 113, 0.95);
+  background: rgba(153, 27, 27, 0.5);
+  color: #fee2e2;
+  animation: hud-idle-alert-flash 0.95s ease-in-out infinite;
+}
+
+@keyframes hud-idle-alert-flash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.18);
+    filter: brightness(1);
+  }
+  50% {
+    box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.6);
+    filter: brightness(1.2);
+  }
+}
+
 .hud-status {
   text-align: right;
 }
@@ -589,9 +663,29 @@ body.tactical-view-scroll-locked {
   gap: 8px;
 }
 
+.unit-behavior-panel {
+  margin-top: 10px;
+  border: 1px solid rgba(125, 211, 252, 0.35);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.45);
+}
+
+.unit-behavior-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
 .mount-action {
   margin-top: 6px;
   width: 100%;
+}
+
+.mount-action--active {
+  border-color: rgba(250, 204, 21, 0.95);
+  background: rgba(202, 138, 4, 0.4);
+  color: #fef3c7;
 }
 
 .lab-modal-backdrop {
@@ -660,6 +754,37 @@ body.tactical-view-scroll-locked {
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.68), rgba(30, 64, 175, 0.24));
   box-shadow: 0 20px 50px rgba(2, 6, 23, 0.5);
   padding: 16px;
+}
+
+.match-summary-modal {
+  width: min(700px, 100%);
+}
+
+.match-summary-table {
+  margin-top: 12px;
+  border: 1px solid rgba(147, 197, 253, 0.25);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.match-summary-row {
+  display: grid;
+  grid-template-columns: minmax(170px, 1.5fr) repeat(6, minmax(72px, 1fr));
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 0.86rem;
+}
+
+.match-summary-row:nth-child(odd) {
+  background: rgba(15, 23, 42, 0.36);
+}
+
+.match-summary-row--header {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #93c5fd;
+  background: rgba(30, 64, 175, 0.35);
 }
 
 .game-shell {
