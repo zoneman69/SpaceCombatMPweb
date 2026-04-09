@@ -56,6 +56,26 @@ type FiringEffect = {
   toId: string;
 };
 
+type EndStatsRow = {
+  ownerId: string;
+  playerName: string;
+  eliminated: boolean;
+  basesRemaining: number;
+  unitsRemaining: number;
+  modulesRemaining: number;
+  shipsBuilt: number;
+  shipsDestroyed: number;
+  shipsLost: number;
+  basesDestroyed: number;
+  resourcesCollected: number;
+};
+
+type MatchSummary = {
+  winnerId: string;
+  endStats: EndStatsRow[];
+  matchComplete: boolean;
+};
+
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
     const bonus = unit.radarRangeBonus ?? 0;
@@ -65,6 +85,9 @@ const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   }
   return FOG_COLLECTOR_VISION_RADIUS;
 };
+
+const getBaseFogRadius = (base: BaseSchema) =>
+  FOG_BASE_VISION_RADIUS + Math.max(0, base.radarUpgradeLevel ?? 0) * 12;
 
 const UNIT_COLORS = {
   friendly: new THREE.Color("#7dd3fc"),
@@ -80,19 +103,20 @@ const MODULE_COLORS = {
   WEAPON_TURRET: new THREE.Color("#fb7185"),
 };
 
-const PLANE_SIZE = 720;
-const GRID_DIVISIONS = 36;
+const PLANE_SIZE = 1080;
+const GRID_DIVISIONS = 54;
 const CAMERA_HEIGHT = 190;
 const CAMERA_DISTANCE = 300;
 const CAMERA_LERP_SPEED = 2.5;
 const CAMERA_ROTATE_SPEED = 0.005;
 const CAMERA_PAN_SPEED = 0.9;
 const CAMERA_KEY_PAN_SPEED = 12;
+const CAMERA_MOBILE_PAN_SPEED = 22;
 const CAMERA_ZOOM_SPEED = 0.25;
 const CAMERA_PITCH_MIN = 0.2;
 const CAMERA_PITCH_MAX = 1.25;
 const CAMERA_RADIUS_MIN = 80;
-const CAMERA_RADIUS_MAX = 620;
+const CAMERA_RADIUS_MAX = 900;
 const MOVE_EPSILON = 0.25;
 const THRUSTER_SPEED_THRESHOLD = 0.45;
 const THRUSTER_MAX_SCALE_Z = 1.6;
@@ -290,6 +314,7 @@ const MODULE_INTERACTION_RANGE = 6;
 const RESOURCE_SCALE_MIN = 0.5;
 const RESOURCE_SCALE_MAX = 1.6;
 const SELECTION_DRAG_THRESHOLD = 6;
+const UNIT_PRESS_HOLD_MS = 450;
 const FOG_FIGHTER_VISION_RADIUS = 30;
 const FOG_COLLECTOR_VISION_RADIUS = 60;
 const FOG_BASE_VISION_RADIUS = 100;
@@ -307,8 +332,8 @@ const FIGHTER_MODEL_PATH = "assets/models/fighter.glb";
 const FIGHTER_LASERS_MODEL_PATH = "assets/models/fighter_lasers.glb";
 const COLLECTOR_MODEL_PATH = "assets/models/collector.glb";
 const STORAGE_CONTAINER_MODEL_PATH = "assets/models/storage_container.glb";
-const FIGHTER_MODEL_TARGET_SIZE = 6;
-const COLLECTOR_MODEL_TARGET_SIZE = 6.5;
+const FIGHTER_MODEL_TARGET_SIZE = 9;
+const COLLECTOR_MODEL_TARGET_SIZE = 9.75;
 const STORAGE_CONTAINER_MODEL_TARGET_SIZE = 1.8;
 const COLLECTOR_BASE_CAPACITY = 25;
 const COLLECTOR_TANK_CAPACITY_STEP = 25;
@@ -357,6 +382,7 @@ export default function TacticalView({
   const fallbackUnitsRef = useRef<Map<string, DebugUnit>>(new Map());
   const collectorAttachmentDebugRef = useRef<Map<string, string>>(new Map());
   const localSessionIdRef = useRef<string | null>(localSessionId);
+  const isSpectatorRef = useRef(false);
   const selectionRef = useRef<Selection>(null);
   const selectedBaseIdRef = useRef<string | null>(null);
   const selectedModuleIdRef = useRef<string | null>(null);
@@ -365,6 +391,7 @@ export default function TacticalView({
   const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
+  const idleCycleIndexRef = useRef(0);
   const cameraYawRef = useRef(0);
   const cameraPitchRef = useRef(
     Math.atan2(CAMERA_HEIGHT, CAMERA_DISTANCE),
@@ -389,8 +416,25 @@ export default function TacticalView({
     active: false,
     moved: false,
   });
+  const pressHoldTimerRef = useRef<number | null>(null);
+  const pressHoldStateRef = useRef<{
+    pointerId: number | null;
+    startX: number;
+    startY: number;
+    unitId: string | null;
+    triggered: boolean;
+  }>({
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+    unitId: null,
+    triggered: false,
+  });
   const [selection, setSelection] = useState<Selection>(null);
   const [selectedUnitIds, setSelectedUnitIds] = useState<string[]>([]);
+  const [guardSourceUnitIds, setGuardSourceUnitIds] = useState<string[] | null>(
+    null,
+  );
   const [selectedHp, setSelectedHp] = useState(0);
   const [selectedShields, setSelectedShields] = useState(0);
   const [selectedSpeed, setSelectedSpeed] = useState(0);
@@ -433,6 +477,15 @@ export default function TacticalView({
   const [isModuleModalOpen, setIsModuleModalOpen] = useState(false);
   const [shouldAutoOpenLabAfterPurchase, setShouldAutoOpenLabAfterPurchase] =
     useState(false);
+  const [isMobileControlsEnabled, setIsMobileControlsEnabled] = useState(false);
+  const [isSpectator, setIsSpectator] = useState(false);
+  const [matchSummary, setMatchSummary] = useState<MatchSummary | null>(null);
+  const [mobileJoystickKnob, setMobileJoystickKnob] = useState({ x: 0, y: 0 });
+  const mobileJoystickRef = useRef({
+    pointerId: null as number | null,
+    x: 0,
+    y: 0,
+  });
 
   const pointerNdc = useMemo(() => new THREE.Vector2(), []);
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
@@ -454,6 +507,37 @@ export default function TacticalView({
   useEffect(() => {
     localSessionIdRef.current = localSessionId;
   }, [localSessionId]);
+
+  useEffect(() => {
+    isSpectatorRef.current = isSpectator;
+  }, [isSpectator]);
+
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px) and (pointer: coarse)");
+    const update = () => setIsMobileControlsEnabled(query.matches);
+    update();
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+
+  const panCameraTarget = (
+    forwardAmount: number,
+    rightAmount: number,
+    panStep: number,
+  ) => {
+    const camera = cameraRef.current;
+    if (!camera) {
+      return;
+    }
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3();
+    right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
+    cameraTargetRef.current.addScaledVector(forward, forwardAmount * panStep);
+    cameraTargetRef.current.addScaledVector(right, rightAmount * panStep);
+  };
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -496,19 +580,11 @@ export default function TacticalView({
           return;
       }
       event.preventDefault();
-      const camera = cameraRef.current;
-      const forward = new THREE.Vector3();
-      camera.getWorldDirection(forward);
-      forward.y = 0;
-      forward.normalize();
-      const right = new THREE.Vector3();
-      right.crossVectors(forward, new THREE.Vector3(0, 1, 0)).normalize();
       const panStep = Math.min(
         40,
         Math.max(6, (cameraRadiusRef.current / 300) * CAMERA_KEY_PAN_SPEED),
       );
-      cameraTargetRef.current.addScaledVector(forward, forwardAmount * panStep);
-      cameraTargetRef.current.addScaledVector(right, rightAmount * panStep);
+      panCameraTarget(forwardAmount, rightAmount, panStep);
       setCameraMode("free");
     };
 
@@ -538,6 +614,26 @@ export default function TacticalView({
     if (!room) {
       return;
     }
+    setIsSpectator(false);
+    setMatchSummary(null);
+    room.onMessage("game:playerDefeated", (payload: { endStats?: EndStatsRow[] }) => {
+      setIsSpectator(true);
+      setMatchSummary({
+        winnerId: "",
+        endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+        matchComplete: false,
+      });
+    });
+    room.onMessage(
+      "game:ended",
+      (payload: { winnerId?: string; endStats?: EndStatsRow[] }) => {
+        setMatchSummary({
+          winnerId: payload?.winnerId ?? "",
+          endStats: Array.isArray(payload?.endStats) ? payload.endStats : [],
+          matchComplete: true,
+        });
+      },
+    );
     room.send("lobby:ensureWorld");
     room.send("debug:dumpUnits");
   }, [room]);
@@ -897,6 +993,8 @@ export default function TacticalView({
       targetSize: number,
     ) => {
       const geometry = mesh.geometry.clone();
+      gltf.scene.updateMatrixWorld(true);
+      geometry.applyMatrix4(mesh.matrixWorld);
       geometry.computeBoundingBox();
       const box = geometry.boundingBox;
       const center = new THREE.Vector3();
@@ -914,7 +1012,6 @@ export default function TacticalView({
       const scaledCenter = center.multiplyScalar(scale);
       geometry.translate(-scaledCenter.x, -scaledCenter.y, -scaledCenter.z);
 
-      gltf.scene.updateMatrixWorld(true);
       const sockets: { name: string; position: THREE.Vector3 }[] = [];
       gltf.scene.traverse((object) => {
         const normalizedName = object.name.toLowerCase();
@@ -923,8 +1020,7 @@ export default function TacticalView({
         }
         const worldPosition = new THREE.Vector3();
         object.getWorldPosition(worldPosition);
-        const meshLocal = mesh.worldToLocal(worldPosition.clone());
-        const normalized = meshLocal.multiplyScalar(scale).sub(scaledCenter);
+        const normalized = worldPosition.multiplyScalar(scale).sub(scaledCenter);
         sockets.push({ name: object.name, position: normalized });
       });
 
@@ -1700,6 +1796,9 @@ export default function TacticalView({
     const cameraOffset = new THREE.Vector3();
     const fogSources: Array<{ x: number; z: number; radius: number }> = [];
     const isVisibleInFog = (x: number, z: number) => {
+      if (isSpectatorRef.current) {
+        return true;
+      }
       if (fogSources.length === 0) {
         return true;
       }
@@ -1902,7 +2001,7 @@ export default function TacticalView({
           fogSources.push({
             x: base.x,
             z: base.z,
-            radius: FOG_BASE_VISION_RADIUS,
+            radius: getBaseFogRadius(base),
           });
         });
       }
@@ -1969,6 +2068,17 @@ export default function TacticalView({
         }
       }
       const activeCameraMode = cameraModeRef.current;
+      const mobilePan = mobileJoystickRef.current;
+      if (Math.abs(mobilePan.x) > 0.01 || Math.abs(mobilePan.y) > 0.01) {
+        const panStep = Math.min(
+          80,
+          Math.max(
+            10,
+            (cameraRadiusRef.current / 280) * CAMERA_MOBILE_PAN_SPEED,
+          ),
+        );
+        panCameraTarget(-mobilePan.y, mobilePan.x, panStep * delta);
+      }
       if (activeCameraMode !== "free") {
         const localOwner = localSessionIdRef.current;
         let targetFound = false;
@@ -2208,6 +2318,8 @@ export default function TacticalView({
     return () => window.clearInterval(interval);
   }, [selection]);
 
+  useEffect(() => () => clearPressHoldTimer(), []);
+
   const getCanvasCoords = (event: React.PointerEvent<HTMLDivElement>) => {
     const bounds =
       rendererRef.current?.domElement.getBoundingClientRect() ??
@@ -2218,6 +2330,33 @@ export default function TacticalView({
       width: bounds.width,
       height: bounds.height,
     };
+  };
+
+  const clearPressHoldTimer = () => {
+    if (pressHoldTimerRef.current) {
+      window.clearTimeout(pressHoldTimerRef.current);
+      pressHoldTimerRef.current = null;
+    }
+  };
+
+  const getOwnedUnitFromPointer = (
+    event: React.PointerEvent<HTMLDivElement>,
+  ): string | null => {
+    if (!rendererRef.current || !cameraRef.current) {
+      return null;
+    }
+    const { x, y, width, height } = getCanvasCoords(event);
+    pointerNdc.x = (x / width) * 2 - 1;
+    pointerNdc.y = -(y / height) * 2 + 1;
+    raycaster.setFromCamera(pointerNdc, cameraRef.current);
+    const meshes = Array.from(meshesRef.current.values()).map((render) => render.mesh);
+    const hits = raycaster.intersectObjects(meshes, false);
+    if (hits.length === 0) {
+      return null;
+    }
+    const hitId = hits[0].object.userData.id as string;
+    const render = meshesRef.current.get(hitId);
+    return render && render.owner === localSessionIdRef.current ? hitId : null;
   };
 
   const updateSelectionFromBox = (box: {
@@ -2264,6 +2403,7 @@ export default function TacticalView({
       return;
     }
     if (event.button === 2) {
+      handleDeselectAllUnits();
       dragStateRef.current = {
         mode: "rotate",
         startX: event.clientX,
@@ -2295,6 +2435,32 @@ export default function TacticalView({
       return;
     }
     const { x, y } = getCanvasCoords(event);
+    const ownedUnitId = getOwnedUnitFromPointer(event);
+    clearPressHoldTimer();
+    pressHoldStateRef.current = {
+      pointerId: event.pointerId,
+      startX: x,
+      startY: y,
+      unitId: ownedUnitId,
+      triggered: false,
+    };
+    if (ownedUnitId) {
+      pressHoldTimerRef.current = window.setTimeout(() => {
+        const holdState = pressHoldStateRef.current;
+        if (holdState.pointerId !== event.pointerId || !holdState.unitId) {
+          return;
+        }
+        holdState.triggered = true;
+        setSelection({ id: holdState.unitId });
+        setSelectedUnitIds([holdState.unitId]);
+        setSelectedBaseId(null);
+        setSelectedModuleId(null);
+        setIsBaseModalOpen(false);
+        setIsModuleModalOpen(false);
+        setIsUnitModalOpen(true);
+        setSelectionBox((prev) => ({ ...prev, visible: false }));
+      }, UNIT_PRESS_HOLD_MS);
+    }
     dragStateRef.current = {
       mode: "select",
       startX: x,
@@ -2323,6 +2489,16 @@ export default function TacticalView({
       const { x, y } = getCanvasCoords(event);
       const deltaX = x - state.startX;
       const deltaY = y - state.startY;
+      const holdState = pressHoldStateRef.current;
+      if (holdState.pointerId === event.pointerId && !holdState.triggered) {
+        if (
+          Math.abs(x - holdState.startX) > SELECTION_DRAG_THRESHOLD ||
+          Math.abs(y - holdState.startY) > SELECTION_DRAG_THRESHOLD
+        ) {
+          clearPressHoldTimer();
+          holdState.unitId = null;
+        }
+      }
       if (
         Math.abs(deltaX) > SELECTION_DRAG_THRESHOLD ||
         Math.abs(deltaY) > SELECTION_DRAG_THRESHOLD
@@ -2398,8 +2574,64 @@ export default function TacticalView({
     );
   };
 
+  const adjustCameraRadius = (delta: number) => {
+    const nextRadius = cameraRadiusRef.current + delta;
+    cameraRadiusRef.current = Math.min(
+      CAMERA_RADIUS_MAX,
+      Math.max(CAMERA_RADIUS_MIN, nextRadius),
+    );
+    setCameraMode("free");
+  };
+
+  const handleMobileJoystickMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const pointerId = mobileJoystickRef.current.pointerId;
+    if (pointerId !== event.pointerId) {
+      return;
+    }
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const rawX = event.clientX - bounds.left - MOBILE_JOYSTICK_RADIUS;
+    const rawY = event.clientY - bounds.top - MOBILE_JOYSTICK_RADIUS;
+    const distance = Math.hypot(rawX, rawY);
+    const clampRatio =
+      distance > MOBILE_JOYSTICK_MAX_DISTANCE
+        ? MOBILE_JOYSTICK_MAX_DISTANCE / distance
+        : 1;
+    const knobX = rawX * clampRatio;
+    const knobY = rawY * clampRatio;
+    setMobileJoystickKnob({ x: knobX, y: knobY });
+    mobileJoystickRef.current.x = knobX / MOBILE_JOYSTICK_MAX_DISTANCE;
+    mobileJoystickRef.current.y = knobY / MOBILE_JOYSTICK_MAX_DISTANCE;
+    setCameraMode("free");
+  };
+
+  const resetMobileJoystick = () => {
+    mobileJoystickRef.current.pointerId = null;
+    mobileJoystickRef.current.x = 0;
+    mobileJoystickRef.current.y = 0;
+    setMobileJoystickKnob({ x: 0, y: 0 });
+  };
+
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const holdState = pressHoldStateRef.current;
+    const holdTriggered =
+      holdState.pointerId === event.pointerId && holdState.triggered;
+    clearPressHoldTimer();
+    if (holdState.pointerId === event.pointerId) {
+      pressHoldStateRef.current = {
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        unitId: null,
+        triggered: false,
+      };
+    }
     const dragState = dragStateRef.current;
+    if (holdTriggered) {
+      dragStateRef.current.active = false;
+      dragStateRef.current.mode = null;
+      setSelectionBox((prev) => ({ ...prev, visible: false }));
+      return;
+    }
     if (dragState.active && dragState.mode === "select") {
       const deltaX = dragState.lastX - dragState.startX;
       const deltaY = dragState.lastY - dragState.startY;
@@ -2444,13 +2676,17 @@ export default function TacticalView({
       const module = modulesRef.current?.get(hitId);
       if (module && module.owner === localSessionId) {
         const isTechShop = module.moduleType === "TECH_SHOP";
+        const isGarage = module.moduleType === "GARAGE";
         setSelectedModuleId(hitId);
-        setSelectedBaseId(isTechShop ? module.baseId : null);
-        setIsModuleModalOpen(!isTechShop);
+        setSelectedBaseId(isTechShop || isGarage ? module.baseId : null);
+        setIsModuleModalOpen(!isTechShop && !isGarage);
         setIsBaseModalOpen(false);
         setIsUnitModalOpen(false);
+        setIsGarageModalOpen(isGarage);
         if (isTechShop) {
           setIsLabModalOpen(true);
+        } else {
+          setIsLabModalOpen(false);
         }
         if (room && selectedUnitIds.length > 0) {
           room.send("module:visit", {
@@ -2482,7 +2718,7 @@ export default function TacticalView({
           const unit =
             unitsRef.current?.get(unitId) ??
             fallbackUnitsRef.current.get(unitId);
-          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+          return (unit?.weaponMounts ?? 0) > 0;
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
@@ -2514,13 +2750,23 @@ export default function TacticalView({
     const hits = raycaster.intersectObjects(meshes, false);
     if (hits.length > 0) {
       const hitId = hits[0].object.userData.id as string;
+      if (room && guardSourceUnitIds && guardSourceUnitIds.length > 0) {
+        room.send("command", {
+          t: "GUARD",
+          unitIds: guardSourceUnitIds,
+          targetId: hitId,
+        });
+        setGuardSourceUnitIds(null);
+        setIsUnitModalOpen(false);
+        return;
+      }
       const render = meshesRef.current.get(hitId);
       if (render && render.owner === localSessionId) {
         setSelection({ id: hitId });
         setSelectedUnitIds([hitId]);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
-        setIsUnitModalOpen(true);
+        setIsUnitModalOpen(false);
         setIsBaseModalOpen(false);
         setIsModuleModalOpen(false);
       } else if (room && selectedUnitIds.length > 0) {
@@ -2528,7 +2774,7 @@ export default function TacticalView({
           const unit =
             unitsRef.current?.get(unitId) ??
             fallbackUnitsRef.current.get(unitId);
-          return !!unit && "weaponMounts" in unit && unit.weaponMounts > 0;
+          return (unit?.weaponMounts ?? 0) > 0;
         });
         if (weaponUnitIds.length > 0) {
           setSelectedBaseId(null);
@@ -2543,6 +2789,9 @@ export default function TacticalView({
         }
       }
       return;
+    }
+    if (guardSourceUnitIds) {
+      setGuardSourceUnitIds(null);
     }
 
     const resourceMeshes = Array.from(resourceMeshesRef.current.values()).map(
@@ -2590,6 +2839,7 @@ export default function TacticalView({
         return;
       }
       if (selectedUnitIds.length > 0) {
+        setGuardSourceUnitIds(null);
         setSelectedBaseId(null);
         setSelectedModuleId(null);
         setIsBaseModalOpen(false);
@@ -2601,6 +2851,7 @@ export default function TacticalView({
           z: target.z,
         });
       } else {
+        setGuardSourceUnitIds(null);
         setSelection(null);
         setSelectedUnitIds([]);
         setSelectedModuleId(null);
@@ -2614,10 +2865,12 @@ export default function TacticalView({
   const handleDeselectAllUnits = () => {
     setSelection(null);
     setSelectedUnitIds([]);
+    setGuardSourceUnitIds(null);
     setIsUnitModalOpen(false);
   };
 
   const handleReturnCameraToBase = () => {
+    handleDeselectAllUnits();
     const localOwner = localSessionIdRef.current;
     if (!localOwner) {
       return;
@@ -2643,11 +2896,45 @@ export default function TacticalView({
     setCameraMode("free");
   };
 
+  const handleCycleIdleUnit = () => {
+    const idleUnits = Array.from(unitsRef.current?.values() ?? []).filter(
+      (unit) =>
+        unit.owner === localSessionIdRef.current &&
+        unit.orderType === "STOP" &&
+        !unit.orderTargetId,
+    );
+    if (idleUnits.length === 0) {
+      idleCycleIndexRef.current = 0;
+      return;
+    }
+    const nextIndex = idleCycleIndexRef.current % idleUnits.length;
+    const nextIdleUnitId = idleUnits[nextIndex].id;
+    idleCycleIndexRef.current = (nextIndex + 1) % idleUnits.length;
+    setSelection({ id: nextIdleUnitId });
+    setSelectedUnitIds([nextIdleUnitId]);
+    setSelectedBaseId(null);
+    setSelectedModuleId(null);
+    setIsUnitModalOpen(false);
+    setIsBaseModalOpen(false);
+    setIsModuleModalOpen(false);
+    setCameraMode("selected");
+  };
+
   const selectedUnit = selection?.id
     ? unitsRef.current?.get(selection.id) ??
       fallbackUnitsRef.current.get(selection.id) ??
       null
     : null;
+  const idleUnitIds = Array.from(unitsRef.current?.values() ?? [])
+    .filter(
+      (unit) =>
+        unit.owner === localSessionId &&
+        unit.orderType === "STOP" &&
+        !unit.orderTargetId,
+    )
+    .map((unit) => unit.id);
+  const idleUnitCount = idleUnitIds.length;
+  const hasIdleUnits = idleUnitCount > 0;
   const selectedUnitCount = selectedUnitIds.length;
   const selectedBase = selectedBaseId
     ? basesRef.current?.get(selectedBaseId) ?? null
@@ -2765,10 +3052,16 @@ export default function TacticalView({
             selectedBase.radarUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
           );
         case "WEAPON":
-          return (
-            selectedBase.researchWeaponLevel1 &&
-            selectedBase.weaponUpgradeLevel < MAX_SHIP_TECH_UPGRADE_LEVEL
-          );
+          if (selectedBase.weaponUpgradeLevel >= MAX_SHIP_TECH_UPGRADE_LEVEL) {
+            return false;
+          }
+          if (selectedBase.weaponUpgradeLevel === 0) {
+            return selectedBase.researchWeaponLevel1;
+          }
+          if (selectedBase.weaponUpgradeLevel === 1) {
+            return selectedBase.researchWeaponLevel2;
+          }
+          return selectedBase.researchWeaponLevel3;
         case "STORAGE":
           return selectedBase.collectorStorageBonus < COLLECTOR_MAX_STORAGE_BONUS;
         default:
@@ -2792,6 +3085,14 @@ export default function TacticalView({
     : "none";
   const selectedUnitOrder =
     selectedUnit && "orderType" in selectedUnit ? selectedUnit.orderType : "n/a";
+  const selectedBehaviorMode =
+    selectedUnitOrder === "AGGRESSIVE"
+      ? "AGGRESSIVE"
+      : selectedUnitOrder === "HOLD"
+        ? "HOLD"
+        : selectedUnitOrder === "GUARD"
+          ? "GUARD"
+          : "AGGRESSIVE";
   const selectedUnitTarget =
     selectedUnit && "orderTargetId" in selectedUnit
       ? selectedUnit.orderTargetId
@@ -2827,11 +3128,21 @@ export default function TacticalView({
   const localResourceTotal = Array.from(basesRef.current?.values() ?? [])
     .filter((base) => base.owner === localSessionId)
     .reduce((total, base) => total + base.resourceStock, 0);
+  const localSummaryRow = matchSummary?.endStats.find(
+    (row) => row.ownerId === localSessionId,
+  );
+  const summaryTitle = matchSummary?.winnerId
+    ? matchSummary.winnerId === localSessionId
+      ? "Victory"
+      : "Match complete"
+    : isSpectator
+      ? "Defeat — spectator mode enabled"
+      : "Match summary";
 
   return (
     <div className="tactical-view">
       <div
-        className="tactical-canvas"
+        className={`tactical-canvas${guardSourceUnitIds ? " tactical-canvas--guard-select" : ""}`}
         ref={containerRef}
         onPointerEnter={() => setIsPointerInsideCanvas(true)}
         onPointerDown={handlePointerDown}
@@ -2876,6 +3187,67 @@ export default function TacticalView({
             }}
           />
         )}
+        {isMobileControlsEnabled ? (
+          <div className="mobile-controls" onPointerDown={(event) => event.stopPropagation()}>
+            <div
+              className="mobile-joystick"
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                mobileJoystickRef.current.pointerId = event.pointerId;
+                event.currentTarget.setPointerCapture(event.pointerId);
+                handleMobileJoystickMove(event);
+              }}
+              onPointerMove={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                handleMobileJoystickMove(event);
+              }}
+              onPointerUp={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (mobileJoystickRef.current.pointerId === event.pointerId) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                  resetMobileJoystick();
+                }
+              }}
+              onPointerCancel={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                if (mobileJoystickRef.current.pointerId === event.pointerId) {
+                  resetMobileJoystick();
+                }
+              }}
+            >
+              <div
+                className="mobile-joystick-knob"
+                style={{
+                  transform: `translate(${mobileJoystickKnob.x}px, ${mobileJoystickKnob.y}px)`,
+                }}
+              />
+            </div>
+            <div className="mobile-zoom-controls">
+              <button
+                className="mobile-zoom-button"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => adjustCameraRadius(-48)}
+                aria-label="Zoom in"
+              >
+                +
+              </button>
+              <button
+                className="mobile-zoom-button"
+                type="button"
+                onPointerDown={(event) => event.stopPropagation()}
+                onClick={() => adjustCameraRadius(48)}
+                aria-label="Zoom out"
+              >
+                −
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
       {createPortal(
         <div
@@ -3001,6 +3373,16 @@ export default function TacticalView({
                 onClick={handleReturnCameraToBase}
               >
                 Return camera to base
+              </button>
+              <button
+                className={`hud-button ${hasIdleUnits ? "idle-alert" : ""}`}
+                type="button"
+                onClick={handleCycleIdleUnit}
+                disabled={!hasIdleUnits}
+              >
+                {idleUnitCount > 1
+                  ? `Cycle idle units (${idleUnitCount})`
+                  : "Jump to idle unit"}
               </button>
             </div>
           </section>
@@ -3535,6 +3917,103 @@ export default function TacticalView({
                   {selectedUnitWeaponMounts}/{selectedUnitTechMounts} · Cargo{" "}
                   {Math.floor(selectedUnitCargo)}/{selectedUnitCargoCapacity}
                 </p>
+                <div className="unit-behavior-panel">
+                  <p className="mount-meta">Unit behavior</p>
+                  <div className="unit-behavior-actions">
+                    <button
+                      className={`hud-button mount-action ${selectedBehaviorMode === "AGGRESSIVE" ? "mount-action--active" : ""}`}
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        room?.send("command", {
+                          t: "AGGRESSIVE",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Attack
+                    </button>
+                    <button
+                      className={`hud-button mount-action ${selectedBehaviorMode === "HOLD" ? "mount-action--active" : ""}`}
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        room?.send("command", { t: "HOLD", unitIds: selectedUnitIds });
+                      }}
+                    >
+                      Hold
+                    </button>
+                    <button
+                      className={`hud-button mount-action ${selectedBehaviorMode === "GUARD" ? "mount-action--active" : ""}`}
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        if (selectedUnitIds.length === 0) {
+                          return;
+                        }
+                        setGuardSourceUnitIds([...selectedUnitIds]);
+                        setIsUnitModalOpen(false);
+                      }}
+                    >
+                      Follow/Guard
+                    </button>
+                  </div>
+                </div>
+                <div className="module-actions">
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", { t: "PATROL", unitIds: selectedUnitIds });
+                      }}
+                    >
+                      Patrol
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_BASE",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to base
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_GARAGE",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to garage
+                    </button>
+                    <button
+                      className="hud-button mount-action"
+                      type="button"
+                      disabled={!room || selectedUnitIds.length === 0}
+                      onClick={() => {
+                        setIsUnitModalOpen(false);
+                        room?.send("command", {
+                          t: "RETURN_TO_REPAIR",
+                          unitIds: selectedUnitIds,
+                        });
+                      }}
+                    >
+                      Return to repair
+                    </button>
+                </div>
               </div>
             </div>,
             document.body,
@@ -3749,6 +4228,72 @@ export default function TacticalView({
                     Move a ship here to interact with this module.
                   </p>
                 )}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
+      {matchSummary
+        ? createPortal(
+            <div className="entity-modal-backdrop" role="presentation">
+              <div className="entity-modal match-summary-modal" role="dialog" aria-modal="true">
+                <div className="lab-modal-header">
+                  <div>
+                    <p className="mount-label">Endgame stats</p>
+                    <p className="mount-title">{summaryTitle}</p>
+                  </div>
+                </div>
+                {isSpectator ? (
+                  <p className="hud-copy">
+                    You can keep watching the match. Fog of war is disabled for spectators.
+                  </p>
+                ) : null}
+                {localSummaryRow ? (
+                  <p className="hud-copy">
+                    Your totals — Built: {localSummaryRow.shipsBuilt} · Destroyed:{" "}
+                    {localSummaryRow.shipsDestroyed} · Lost: {localSummaryRow.shipsLost} ·
+                    Resources collected: {Math.floor(localSummaryRow.resourcesCollected)}
+                  </p>
+                ) : null}
+                <div className="match-summary-table" role="table" aria-label="Match totals">
+                  <div className="match-summary-row match-summary-row--header" role="row">
+                    <span role="columnheader">Player</span>
+                    <span role="columnheader">Built</span>
+                    <span role="columnheader">Destroyed</span>
+                    <span role="columnheader">Lost</span>
+                    <span role="columnheader">Resources</span>
+                    <span role="columnheader">Bases left</span>
+                    <span role="columnheader">Status</span>
+                  </div>
+                  {matchSummary.endStats.map((row) => (
+                    <div className="match-summary-row" role="row" key={row.ownerId}>
+                      <span role="cell">
+                        {row.playerName}
+                        {row.ownerId === localSessionId ? " (You)" : ""}
+                      </span>
+                      <span role="cell">{row.shipsBuilt}</span>
+                      <span role="cell">{row.shipsDestroyed}</span>
+                      <span role="cell">{row.shipsLost}</span>
+                      <span role="cell">{Math.floor(row.resourcesCollected)}</span>
+                      <span role="cell">{row.basesRemaining}</span>
+                      <span role="cell">{row.eliminated ? "Eliminated" : "Active"}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="hud-actions">
+                  <button
+                    className="hud-button"
+                    type="button"
+                    onClick={() => {
+                      setMatchSummary(null);
+                      if (matchSummary.matchComplete) {
+                        onExit?.();
+                      }
+                    }}
+                  >
+                    {matchSummary.matchComplete ? "Continue to lobby" : "Close"}
+                  </button>
+                </div>
               </div>
             </div>,
             document.body,

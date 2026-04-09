@@ -16,6 +16,7 @@ type Player = {
   id: string;
   name: string;
   ready: boolean;
+  isBot?: boolean;
 };
 
 type LobbyRoom = {
@@ -26,6 +27,8 @@ type LobbyRoom = {
   hostId?: string;
   players: Player[];
 };
+
+const RECONNECT_TOKEN_KEY = "space-combat:reconnect-token";
 
 export default function App() {
   const [status, setStatus] = useState("idle");
@@ -95,6 +98,22 @@ export default function App() {
       let room: Room<SpaceState> | null = null;
       let attempt = 0;
 
+      const reconnectToken = window.localStorage.getItem(RECONNECT_TOKEN_KEY);
+      if (reconnectToken) {
+        try {
+          room = await colyseus.reconnect<SpaceState>(reconnectToken);
+          console.log("[lobby] reconnected with saved token", {
+            roomId: room.roomId,
+            sessionId: room.sessionId,
+          });
+        } catch (error) {
+          console.warn("[lobby] reconnect token failed; falling back to join", {
+            error,
+          });
+          window.localStorage.removeItem(RECONNECT_TOKEN_KEY);
+        }
+      }
+
       while (!room && attempt < maxAttempts) {
         attempt += 1;
         try {
@@ -118,6 +137,9 @@ export default function App() {
         throw new Error("Failed to join or create a room.");
       }
       roomRef.current = room;
+      if (room.reconnectionToken) {
+        window.localStorage.setItem(RECONNECT_TOKEN_KEY, room.reconnectionToken);
+      }
       setRoom(room);
       setStatus(`connected ✅ roomId=${room.roomId ?? "unknown"}`);
       setLocalSessionId(room.sessionId ?? null);
@@ -239,6 +261,7 @@ export default function App() {
               id: player.id,
               name: player.name,
               ready: player.ready,
+              isBot: player.isBot,
             }));
             return {
               id: roomItem.id,
@@ -313,6 +336,37 @@ export default function App() {
         }
       });
 
+      room.onMessage("game:ended", (payload) => {
+        const winnerId =
+          payload && typeof payload.winnerId === "string"
+            ? payload.winnerId
+            : null;
+        if (winnerId === room.sessionId) {
+          setStatus("Match ended ✅ You won.");
+        } else if (winnerId) {
+          setStatus("Match ended 🏁 Another player won.");
+        } else {
+          setStatus("Match ended 🏁 No winner.");
+        }
+      });
+
+      room.onMessage("game:restarted", () => {
+        setStatus("Match restarted ✅");
+        setCountdown(null);
+        setView("lobby");
+      });
+
+      room.onMessage("lobby:roomRemoved", (payload) => {
+        const removedRoomId =
+          payload && typeof payload.roomId === "string" ? payload.roomId : null;
+        if (removedRoomId && removedRoomId === activeRoomIdRef.current) {
+          setActiveRoomId(null);
+          setCountdown(null);
+          setView("lobby");
+          setStatus("Room removed ✅");
+        }
+      });
+
       room.onLeave((code) => {
         console.warn("[lobby] room left", { code });
         if (roomRef.current !== room) {
@@ -327,7 +381,10 @@ export default function App() {
         setCountdown(null);
         setHasConnected(false);
         setLocalSessionId(null);
-        setStatus("disconnected");
+        setStatus("disconnected, attempting reconnect...");
+        window.setTimeout(() => {
+          void connect();
+        }, 250);
       });
 
       room.onStateChange((state) => {
@@ -405,13 +462,34 @@ export default function App() {
     roomRef.current?.send("lobby:toggleReady");
   };
 
+  const addAiPlayer = () => {
+    roomRef.current?.send("lobby:addAiPlayer");
+  };
+
+  const removeAiPlayer = (playerId: string) => {
+    roomRef.current?.send("lobby:removeAiPlayer", { playerId });
+  };
+
+  const restartGame = () => {
+    roomRef.current?.send("lobby:restartGame");
+  };
+
+  const removeRoom = () => {
+    roomRef.current?.send("lobby:removeRoom");
+  };
+
+  const returnToLobby = () => {
+    roomRef.current?.send("lobby:setReady", { ready: false });
+    setView("lobby");
+  };
+
   if (view === "game") {
     return (
       <div className="game-shell game-shell--tactical">
         <TacticalView
           room={room}
           localSessionId={localSessionId}
-          onExit={() => setView("lobby")}
+          onExit={returnToLobby}
         />
       </div>
     );
@@ -441,7 +519,7 @@ export default function App() {
             </span>
           </div>
           <p className="status-meta">
-            Room service: <code>space</code> · Tick rate: 20 Hz · Fleet limit: 8
+            Room service: <code>space</code> · Tick rate: 20 Hz · Fleet limit: 3
           </p>
         </div>
       </header>
@@ -498,7 +576,7 @@ export default function App() {
                   <div className="room-meta">
                     <span>Players</span>
                     <strong>
-                      {room.players.length} / 8
+                      {room.players.length} / 4
                     </strong>
                   </div>
                   <div className="room-actions">
@@ -534,18 +612,49 @@ export default function App() {
                   </strong>
                 </div>
               </div>
+              {activeRoom.hostId === localSessionId && (
+                <div className="ready-actions">
+                  <button
+                    className="btn"
+                    type="button"
+                    onClick={addAiPlayer}
+                    disabled={activeRoom.players.length >= 4}
+                  >
+                    Add AI player
+                  </button>
+                  <button className="btn" type="button" onClick={restartGame}>
+                    Restart game
+                  </button>
+                  <button className="btn" type="button" onClick={removeRoom}>
+                    Remove room
+                  </button>
+                </div>
+              )}
               <ul className="roster-list">
                 {activeRoom.players.map((player) => (
                   <li key={player.id} className="roster-item">
                     <div>
                       <p>
-                        {player.id === localSessionId ? "You" : player.name}
+                        {player.id === localSessionId
+                          ? "You"
+                          : `${player.name}${player.isBot ? " (AI)" : ""}`}
                       </p>
                       <span>{player.ready ? "Ready" : "Standing by"}</span>
                     </div>
-                    <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
-                      {player.ready ? "Ready" : "Idle"}
-                    </span>
+                    <div className="room-actions">
+                      <span className={`status-pill ${player.ready ? "online" : "offline"}`}>
+                        {player.ready ? "Ready" : "Idle"}
+                      </span>
+                      {activeRoom.hostId === localSessionId && player.isBot && (
+                        <button
+                          className="btn"
+                          type="button"
+                          onClick={() => removeAiPlayer(player.id)}
+                        >
+                          Remove
+                        </button>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
