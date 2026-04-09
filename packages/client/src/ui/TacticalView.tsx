@@ -57,26 +57,6 @@ type FiringEffect = {
   muzzleIndex: number;
 };
 
-type EndStatsRow = {
-  ownerId: string;
-  playerName: string;
-  eliminated: boolean;
-  basesRemaining: number;
-  unitsRemaining: number;
-  modulesRemaining: number;
-  shipsBuilt: number;
-  shipsDestroyed: number;
-  shipsLost: number;
-  basesDestroyed: number;
-  resourcesCollected: number;
-};
-
-type MatchSummary = {
-  winnerId: string;
-  endStats: EndStatsRow[];
-  matchComplete: boolean;
-};
-
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
     const bonus = unit.radarRangeBonus ?? 0;
@@ -768,6 +748,10 @@ export default function TacticalView({
       new THREE.Vector3(0.8, 0.2, 0.9),
       new THREE.Vector3(-0.1, 0.35, 0),
     ];
+    const defaultFighterMuzzleMountPoints = [
+      defaultFighterWeaponMountPoints[0].clone(),
+      defaultFighterWeaponMountPoints[1].clone(),
+    ];
     const defaultCollectorTankMountPoints = [
       new THREE.Vector3(-1.2, 0.9, -1.3),
       new THREE.Vector3(-1.2, 0.9, 1.3),
@@ -784,6 +768,7 @@ export default function TacticalView({
     ];
     const defaultCollectorWeaponMountPoint = new THREE.Vector3(2.3, 0.65, 0);
     let fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+    let fighterMuzzleMountPoints = [...defaultFighterMuzzleMountPoints];
     let collectorTankMountPoints = [...defaultCollectorTankMountPoints];
     let fighterThrusterMountPoints = [...defaultFighterThrusterMountPoints];
     let collectorThrusterMountPoints = [...defaultCollectorThrusterMountPoints];
@@ -1039,15 +1024,26 @@ export default function TacticalView({
         if (!geometry) {
           return;
         }
-        const transformed = geometry.clone();
+        const transformed = geometry.index ? geometry.toNonIndexed() : geometry.clone();
         transformed.applyMatrix4(object.matrixWorld);
         transformedGeometries.push(transformed);
       });
       if (transformedGeometries.length === 0) {
         return null;
       }
+      const largestGeometry =
+        transformedGeometries.reduce<THREE.BufferGeometry | null>((largest, geometry) => {
+          geometry.computeBoundingSphere();
+          if (!largest) {
+            return geometry;
+          }
+          largest.computeBoundingSphere();
+          const largestRadius = largest.boundingSphere?.radius ?? 0;
+          const radius = geometry.boundingSphere?.radius ?? 0;
+          return radius > largestRadius ? geometry : largest;
+        }, null) ?? transformedGeometries[0];
       const mergedGeometry =
-        mergeGeometries(transformedGeometries) ?? transformedGeometries[0].clone();
+        mergeGeometries(transformedGeometries) ?? largestGeometry.clone();
       transformedGeometries.forEach((geometry) => geometry.dispose());
       mergedGeometry.computeBoundingBox();
       const box = mergedGeometry.boundingBox;
@@ -1311,14 +1307,17 @@ export default function TacticalView({
               parseSocketOrder(a.name, "socket_weapon") -
               parseSocketOrder(b.name, "socket_weapon"),
           )
-          .map((socket) => socket.position);
+          .map((socket) => socket.position)
+          .filter((socket) => isSocketPositionUsable(socket));
         if (fighterSockets.length > 0) {
           fighterWeaponMountPoints = fighterSockets;
+          fighterMuzzleMountPoints = fighterSockets;
           console.log(
             `[tactical] using ${fighterSockets.length} fighter weapon sockets from model`,
           );
         } else {
           fighterWeaponMountPoints = [...defaultFighterWeaponMountPoints];
+          fighterMuzzleMountPoints = [...defaultFighterMuzzleMountPoints];
         }
         const fighterThrusterSockets = fighterModelData.sockets
           .filter((socket) =>
@@ -1976,11 +1975,11 @@ export default function TacticalView({
                   muzzleIndex:
                     "unitType" in unit &&
                     unit.unitType === "FIGHTER" &&
-                    fighterWeaponMountPoints.length > 0
+                    fighterMuzzleMountPoints.length > 0
                       ? (() => {
                           const previous =
                             weaponMuzzleCycleRef.current.get(unit.id) ?? 0;
-                          const next = (previous + 1) % fighterWeaponMountPoints.length;
+                          const next = (previous + 1) % fighterMuzzleMountPoints.length;
                           weaponMuzzleCycleRef.current.set(unit.id, next);
                           return previous;
                         })()
@@ -2026,12 +2025,12 @@ export default function TacticalView({
             fromRender &&
             "unitType" in from &&
             from.unitType === "FIGHTER" &&
-            fighterWeaponMountPoints.length > 0
+            fighterMuzzleMountPoints.length > 0
           ) {
             const muzzle =
-              fighterWeaponMountPoints[
-                effect.muzzleIndex % fighterWeaponMountPoints.length
-              ] ?? fighterWeaponMountPoints[0];
+              fighterMuzzleMountPoints[
+                effect.muzzleIndex % fighterMuzzleMountPoints.length
+              ] ?? fighterMuzzleMountPoints[0];
             if (muzzle) {
               const worldMuzzle = fromRender.mesh.localToWorld(muzzle.clone());
               positions.setXYZ(0, worldMuzzle.x, worldMuzzle.y, worldMuzzle.z);
