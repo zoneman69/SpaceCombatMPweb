@@ -716,9 +716,6 @@ export default function TacticalView({
 
     const getUnitGeometry = (unit: UnitSchema | DebugUnit) => {
       if ("unitType" in unit && unit.unitType === "FIGHTER") {
-        if ((unit.weaponMounts ?? 0) > 0 && loadedFighterLasersGeometry) {
-          return loadedFighterLasersGeometry;
-        }
         return loadedFighterGeometry ?? fighterGeometry;
       }
       return loadedCollectorGeometry ?? collectorGeometry;
@@ -727,15 +724,10 @@ export default function TacticalView({
       if (!("unitType" in unit) || unit.unitType !== "FIGHTER") {
         return null;
       }
-      return (unit.weaponMounts ?? 0) > 0 && loadedFighterLasersGeometry
-        ? "lasers"
-        : "base";
+      return "base";
     };
     const getImportedUnitMaterial = (unit: UnitSchema | DebugUnit) => {
       if ("unitType" in unit && unit.unitType === "FIGHTER") {
-        if ((unit.weaponMounts ?? 0) > 0 && loadedFighterLasersMaterial) {
-          return loadedFighterLasersMaterial;
-        }
         return loadedFighterMaterial;
       }
       if ("unitType" in unit && unit.unitType === "RESOURCE_COLLECTOR") {
@@ -829,7 +821,10 @@ export default function TacticalView({
       }
       const tankCount =
         unit.unitType === "RESOURCE_COLLECTOR" ? getCollectorTankUpgradeCount(unit) : 0;
-      const weaponMounts = Math.max(0, Math.min(1, unit.weaponMounts ?? 0));
+      const weaponMounts =
+        unit.unitType === "RESOURCE_COLLECTOR"
+          ? Math.max(0, Math.min(1, unit.weaponMounts ?? 0))
+          : Math.max(0, Math.min(fighterWeaponMountPoints.length, unit.weaponMounts ?? 0));
       const signature = `${unit.unitType}:${tankCount}:${weaponMounts}`;
       if (signature === render.attachmentSignature) {
         return;
@@ -865,7 +860,7 @@ export default function TacticalView({
         render.attachmentGroup.remove(child);
         const childMesh = child as THREE.Mesh;
         childMesh.geometry.dispose();
-        (childMesh.material as THREE.Material).dispose();
+        disposeMaterialSet(childMesh.material as THREE.Material | THREE.Material[]);
       }
 
       if (unit.unitType === "RESOURCE_COLLECTOR") {
@@ -903,23 +898,20 @@ export default function TacticalView({
           render.attachmentGroup.add(weapon);
         }
       } else if (unit.unitType === "FIGHTER") {
-        if (render.fighterModelVariant === "lasers") {
-          render.attachmentSignature = signature;
-          return;
-        }
-        const fighterMounts = Math.max(
-          1,
-          Math.min(fighterWeaponMountPoints.length, unit.weaponMounts ?? 0),
-        );
+        const fighterMounts = weaponMounts;
         for (let index = 0; index < fighterMounts; index += 1) {
+          const importedWeaponMaterial = loadedFighterLasersMaterial
+            ? cloneMaterialSet(loadedFighterLasersMaterial)
+            : null;
           const pod = new THREE.Mesh(
-            fighterWeaponGeometry.clone(),
-            new THREE.MeshStandardMaterial({
-              color,
-              emissive: new THREE.Color("#081324"),
-              metalness: 0.3,
-              roughness: 0.5,
-            }),
+            (loadedFighterLasersGeometry ?? fighterWeaponGeometry).clone(),
+            importedWeaponMaterial ??
+              new THREE.MeshStandardMaterial({
+                color,
+                emissive: new THREE.Color("#081324"),
+                metalness: 0.3,
+                roughness: 0.5,
+              }),
           );
           pod.position.copy(fighterWeaponMountPoints[index]);
           render.attachmentGroup.add(pod);
@@ -1607,7 +1599,7 @@ export default function TacticalView({
       scene.remove(render.mesh);
       render.attachmentGroup.children.forEach((child) => {
         (child as THREE.Mesh).geometry.dispose();
-        ((child as THREE.Mesh).material as THREE.Material).dispose();
+        disposeMaterialSet((child as THREE.Mesh).material as THREE.Material | THREE.Material[]);
       });
       render.mesh.geometry.dispose();
       (render.mesh.material as THREE.Material).dispose();
@@ -2309,7 +2301,7 @@ export default function TacticalView({
       meshesRef.current.forEach((render) => {
         render.attachmentGroup.children.forEach((child) => {
           (child as THREE.Mesh).geometry.dispose();
-          ((child as THREE.Mesh).material as THREE.Material).dispose();
+          disposeMaterialSet((child as THREE.Mesh).material as THREE.Material | THREE.Material[]);
         });
         render.mesh.geometry.dispose();
         disposeMaterialSet(render.mesh.material as THREE.Material | THREE.Material[]);
@@ -2396,9 +2388,14 @@ export default function TacticalView({
         render.selectionOutlineGeometrySource = null;
       }
       render.attachmentGroup.children.forEach((child) => {
-        const childMaterial = (child as THREE.Mesh)
-          .material as THREE.MeshStandardMaterial;
-        childMaterial.color = color.clone();
+        const childMaterials = Array.isArray((child as THREE.Mesh).material)
+          ? (child as THREE.Mesh).material
+          : [(child as THREE.Mesh).material];
+        childMaterials.forEach((material) => {
+          if ("color" in material && material.color instanceof THREE.Color) {
+            material.color = color.clone();
+          }
+        });
       });
     });
 
