@@ -916,6 +916,10 @@ export default function TacticalView({
           render.attachmentGroup.add(weapon);
         }
       } else if (unit.unitType === "FIGHTER") {
+        if (render.fighterModelVariant === "lasers") {
+          render.attachmentSignature = signature;
+          return;
+        }
         const fighterMounts = Math.max(
           1,
           Math.min(fighterWeaponMountPoints.length, unit.weaponMounts ?? 0),
@@ -1075,6 +1079,29 @@ export default function TacticalView({
         meshWithTextureCount,
       });
     };
+    const pickPrimaryRenderableMesh = (gltf: GLTF, modelLabel: string) => {
+      let pickedMesh: THREE.Mesh | null = null;
+      let pickedRadius = -Infinity;
+      gltf.scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh) || !object.material) {
+          return;
+        }
+        const geometry = object.geometry as THREE.BufferGeometry | undefined;
+        if (!geometry) {
+          return;
+        }
+        geometry.computeBoundingSphere();
+        const radius = geometry.boundingSphere?.radius ?? 0;
+        if (radius > pickedRadius) {
+          pickedRadius = radius;
+          pickedMesh = object;
+        }
+      });
+      if (!pickedMesh) {
+        console.warn(`[tactical] ${modelLabel} had no renderable mesh`);
+      }
+      return pickedMesh;
+    };
 
     const ensureUnitMesh = (unit: UnitSchema | DebugUnit) => {
       if (meshesRef.current.has(unit.id)) {
@@ -1202,16 +1229,7 @@ export default function TacticalView({
           return;
         }
         inspectModelMeshMaterials(gltf, "fighter");
-        let fighterMesh: THREE.Mesh | null = null;
-        gltf.scene.traverse((object) => {
-          if (
-            !fighterMesh &&
-            object instanceof THREE.Mesh &&
-            object.material
-          ) {
-            fighterMesh = object;
-          }
-        });
+        const fighterMesh = pickPrimaryRenderableMesh(gltf, "fighter");
         if (!fighterMesh) {
           console.warn(
             `[tactical] fighter model at ${fighterModelUrl} had no mesh; using primitive fallback`,
@@ -1285,16 +1303,7 @@ export default function TacticalView({
           return;
         }
         inspectModelMeshMaterials(gltf, "collector");
-        let collectorMesh: THREE.Mesh | null = null;
-        gltf.scene.traverse((object) => {
-          if (
-            !collectorMesh &&
-            object instanceof THREE.Mesh &&
-            object.material
-          ) {
-            collectorMesh = object;
-          }
-        });
+        const collectorMesh = pickPrimaryRenderableMesh(gltf, "collector");
         if (!collectorMesh) {
           console.warn(
             `[tactical] collector model at ${collectorModelUrl} had no mesh; using primitive fallback`,
@@ -1389,12 +1398,7 @@ export default function TacticalView({
           return;
         }
         inspectModelMeshMaterials(gltf, "fighter_lasers");
-        let fighterMesh: THREE.Mesh | null = null;
-        gltf.scene.traverse((object) => {
-          if (!fighterMesh && object instanceof THREE.Mesh && object.material) {
-            fighterMesh = object;
-          }
-        });
+        const fighterMesh = pickPrimaryRenderableMesh(gltf, "fighter_lasers");
         if (!fighterMesh) {
           console.warn(
             `[tactical] fighter_lasers model at ${fighterLasersModelUrl} had no mesh; using weapon pod fallback`,
