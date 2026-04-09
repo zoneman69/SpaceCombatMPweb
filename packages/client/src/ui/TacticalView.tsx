@@ -54,6 +54,7 @@ type FiringEffect = {
   maxTtl: number;
   fromId: string;
   toId: string;
+  muzzleIndex: number;
 };
 
 type EndStatsRow = {
@@ -389,6 +390,7 @@ export default function TacticalView({
   const cameraModeRef = useRef<CameraMode>("squad");
   const firingEffectsRef = useRef<FiringEffect[]>([]);
   const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
+  const weaponMuzzleCycleRef = useRef<Map<string, number>>(new Map());
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const cameraDesiredTargetRef = useRef(new THREE.Vector3(0, 0, 0));
   const idleCycleIndexRef = useRef(0);
@@ -1026,6 +1028,59 @@ export default function TacticalView({
 
       return { geometry, sockets };
     };
+    const extractNormalizedModelDataFromScene = (gltf: GLTF, targetSize: number) => {
+      gltf.scene.updateMatrixWorld(true);
+      const transformedGeometries: THREE.BufferGeometry[] = [];
+      gltf.scene.traverse((object) => {
+        if (!(object instanceof THREE.Mesh)) {
+          return;
+        }
+        const geometry = object.geometry as THREE.BufferGeometry | undefined;
+        if (!geometry) {
+          return;
+        }
+        const transformed = geometry.clone();
+        transformed.applyMatrix4(object.matrixWorld);
+        transformedGeometries.push(transformed);
+      });
+      if (transformedGeometries.length === 0) {
+        return null;
+      }
+      const mergedGeometry =
+        mergeGeometries(transformedGeometries) ?? transformedGeometries[0].clone();
+      transformedGeometries.forEach((geometry) => geometry.dispose());
+      mergedGeometry.computeBoundingBox();
+      const box = mergedGeometry.boundingBox;
+      const center = new THREE.Vector3();
+      let scale = 1;
+      if (box) {
+        box.getCenter(center);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const maxDimension = Math.max(size.x, size.y, size.z);
+        if (maxDimension > 0) {
+          scale = targetSize / maxDimension;
+          mergedGeometry.scale(scale, scale, scale);
+        }
+      }
+      const scaledCenter = center.multiplyScalar(scale);
+      mergedGeometry.translate(-scaledCenter.x, -scaledCenter.y, -scaledCenter.z);
+      const sockets: { name: string; position: THREE.Vector3 }[] = [];
+      gltf.scene.traverse((object) => {
+        const normalizedName = object.name.toLowerCase();
+        if (!normalizedName.startsWith("socket_")) {
+          return;
+        }
+        const worldPosition = new THREE.Vector3();
+        object.getWorldPosition(worldPosition);
+        const local = gltf.scene.worldToLocal(worldPosition);
+        sockets.push({
+          name: object.name,
+          position: local.multiplyScalar(scale).sub(scaledCenter),
+        });
+      });
+      return { geometry: mergedGeometry, sockets };
+    };
 
     const cloneMaterialSet = (
       material: THREE.Material | THREE.Material[],
@@ -1237,11 +1292,13 @@ export default function TacticalView({
           return;
         }
         loadedFighterGeometry?.dispose();
-        const fighterModelData = extractNormalizedModelData(
-          gltf,
-          fighterMesh,
-          FIGHTER_MODEL_TARGET_SIZE,
-        );
+        const fighterModelData =
+          extractNormalizedModelDataFromScene(gltf, FIGHTER_MODEL_TARGET_SIZE) ??
+          extractNormalizedModelData(
+            gltf,
+            fighterMesh,
+            FIGHTER_MODEL_TARGET_SIZE,
+          );
         loadedFighterGeometry = fighterModelData.geometry;
         disposeMaterialSet(loadedFighterMaterial);
         loadedFighterMaterial = cloneMaterialSet(
@@ -1525,6 +1582,7 @@ export default function TacticalView({
       (render.mesh.material as THREE.Material).dispose();
       meshesRef.current.delete(unitId);
       collectorAttachmentDebugRef.current.delete(unitId);
+      weaponMuzzleCycleRef.current.delete(unitId);
     };
 
     const ensureBaseMesh = (base: BaseSchema) => {
@@ -1909,12 +1967,24 @@ export default function TacticalView({
                 const line = new THREE.Line(geometry, material);
                 scene.add(line);
                 const ttl = 0.25;
-                firingEffectsRef.current.push({
+              firingEffectsRef.current.push({
                   line,
                   ttl,
                   maxTtl: ttl,
                   fromId: unit.id,
                   toId: targetId,
+                  muzzleIndex:
+                    "unitType" in unit &&
+                    unit.unitType === "FIGHTER" &&
+                    fighterWeaponMountPoints.length > 0
+                      ? (() => {
+                          const previous =
+                            weaponMuzzleCycleRef.current.get(unit.id) ?? 0;
+                          const next = (previous + 1) % fighterWeaponMountPoints.length;
+                          weaponMuzzleCycleRef.current.set(unit.id, next);
+                          return previous;
+                        })()
+                      : 0,
                 });
               }
             }
@@ -1926,6 +1996,7 @@ export default function TacticalView({
         for (const unitId of weaponCooldowns.keys()) {
           if (!activeUnitIds.has(unitId)) {
             weaponCooldowns.delete(unitId);
+            weaponMuzzleCycleRef.current.delete(unitId);
           }
         }
       }
@@ -1950,7 +2021,26 @@ export default function TacticalView({
           const positions = effect.line.geometry.getAttribute(
             "position",
           ) as THREE.BufferAttribute;
-          positions.setXYZ(0, from.x, 2, from.z);
+          const fromRender = meshesRef.current.get(effect.fromId);
+          if (
+            fromRender &&
+            "unitType" in from &&
+            from.unitType === "FIGHTER" &&
+            fighterWeaponMountPoints.length > 0
+          ) {
+            const muzzle =
+              fighterWeaponMountPoints[
+                effect.muzzleIndex % fighterWeaponMountPoints.length
+              ] ?? fighterWeaponMountPoints[0];
+            if (muzzle) {
+              const worldMuzzle = fromRender.mesh.localToWorld(muzzle.clone());
+              positions.setXYZ(0, worldMuzzle.x, worldMuzzle.y, worldMuzzle.z);
+            } else {
+              positions.setXYZ(0, from.x, 2, from.z);
+            }
+          } else {
+            positions.setXYZ(0, from.x, 2, from.z);
+          }
           positions.setXYZ(1, to.x, 2, to.z);
           positions.needsUpdate = true;
           const material = effect.line.material as THREE.LineBasicMaterial;
