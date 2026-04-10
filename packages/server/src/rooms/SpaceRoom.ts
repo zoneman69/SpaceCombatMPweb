@@ -58,6 +58,10 @@ const MODULE_WEAPON_TURRET_COST = 140;
 const MAX_UNIT_WEAPON_MOUNTS = 3;
 const MODULE_INTERACTION_RANGE = 6;
 const GARAGE_INSTALL_RANGE = MODULE_INTERACTION_RANGE;
+const GARAGE_DOCK_APPROACH_OFFSET = 8;
+const GARAGE_DOCK_INSIDE_OFFSET = 1.8;
+const GARAGE_DOCK_PHASE_EPSILON = 1.25;
+const GARAGE_DOCK_ALIGN_EPSILON = 0.08;
 const GARAGE_INSTALL_WEAPON_COST = 80;
 const GARAGE_INSTALL_WEAPON_DURATION = 10;
 const GARAGE_INSTALL_TECH_COST = 90;
@@ -140,6 +144,13 @@ const UNIT_CONFIG: Record<
 
 type GarageInstallType = "WEAPON" | "TECH";
 type TechPackageKey = "SHIELDS" | "HULL" | "SPEED" | "RADAR" | "WEAPON";
+type GarageDockPhase =
+  | "NONE"
+  | "APPROACH"
+  | "ALIGN"
+  | "DOCK"
+  | "SERVICE"
+  | "UNDOCK";
 
 type BaseResearchKey =
   | "researchRepairBay"
@@ -729,6 +740,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     this.processRepairBays(dt);
     this.processResearch(dt);
     this.processGarageInstalls(dt);
+    this.refreshUnitActionStates();
   }
 
   private updateAiPlayers(dt: number) {
@@ -2110,6 +2122,7 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
     unit.pendingInstallDuration = durationSeconds;
     unit.installTimeRemaining = durationSeconds;
     unit.installState = "QUEUED";
+    unit.installDockPhase = "APPROACH";
     unit.orderType = "RETURN_TO_GARAGE";
     unit.orderTargetId = garage.id;
     unit.orderX = garage.x;
@@ -2225,46 +2238,120 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
       }
       const garage = this.state.modules.get(unit.pendingInstallGarageId);
       if (!garage || garage.moduleType !== "GARAGE") {
-        unit.pendingInstallType = "";
-        unit.pendingInstallKey = "";
-        unit.pendingInstallGarageId = "";
-        unit.pendingInstallDuration = 0;
-        unit.installTimeRemaining = 0;
-        unit.installState = "IDLE";
+        this.resetGarageInstall(unit);
         continue;
       }
-      const distanceToGarage = Math.hypot(unit.x - garage.x, unit.z - garage.z);
-      if (distanceToGarage > GARAGE_INSTALL_RANGE) {
+      const dockPhase = (unit.installDockPhase || "APPROACH") as GarageDockPhase;
+      const dockPoints = this.getGarageDockPoints(garage);
+      if (dockPhase === "NONE" || dockPhase === "APPROACH") {
+        unit.installDockPhase = "APPROACH";
         unit.orderType = "RETURN_TO_GARAGE";
         unit.orderTargetId = garage.id;
-        unit.orderX = garage.x;
-        unit.orderZ = garage.z;
+        unit.orderX = dockPoints.approach.x;
+        unit.orderZ = dockPoints.approach.z;
+        if (
+          this.isUnitNearPoint(unit, dockPoints.approach.x, dockPoints.approach.z)
+        ) {
+          unit.installDockPhase = "ALIGN";
+        }
         continue;
       }
-      if (unit.installState === "QUEUED") {
-        unit.installState = "INSTALLING";
-        unit.installTimeRemaining = Math.max(
-          unit.installTimeRemaining,
-          unit.pendingInstallDuration,
-        );
-      }
-      unit.orderType = "STOP";
-      unit.orderTargetId = "";
-      unit.vx = 0;
-      unit.vz = 0;
-      unit.installTimeRemaining = Math.max(0, unit.installTimeRemaining - dt);
-      if (unit.installTimeRemaining > 0) {
+      if (dockPhase === "ALIGN") {
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
+        unit.vx = 0;
+        unit.vz = 0;
+        const aligned = this.rotateUnitToward(unit, dockPoints.heading, dt);
+        if (aligned) {
+          unit.installDockPhase = "DOCK";
+        }
         continue;
       }
-      this.applyGarageInstall(unit);
-      unit.pendingInstallType = "";
-      unit.pendingInstallKey = "";
-      unit.pendingInstallGarageId = "";
-      unit.pendingInstallDuration = 0;
-      unit.installState = "IDLE";
-      unit.installTimeRemaining = 0;
-      unit.orderType = "STOP";
+      if (dockPhase === "DOCK") {
+        unit.orderType = "RETURN_TO_GARAGE";
+        unit.orderTargetId = garage.id;
+        unit.orderX = dockPoints.inside.x;
+        unit.orderZ = dockPoints.inside.z;
+        if (
+          this.isUnitNearPoint(unit, dockPoints.inside.x, dockPoints.inside.z)
+        ) {
+          unit.installDockPhase = "SERVICE";
+          unit.installState = "INSTALLING";
+          unit.installTimeRemaining = Math.max(
+            unit.installTimeRemaining,
+            unit.pendingInstallDuration,
+          );
+        }
+        continue;
+      }
+      if (dockPhase === "SERVICE") {
+        unit.orderType = "STOP";
+        unit.orderTargetId = "";
+        unit.vx = 0;
+        unit.vz = 0;
+        unit.installTimeRemaining = Math.max(0, unit.installTimeRemaining - dt);
+        if (unit.installTimeRemaining <= 0) {
+          this.applyGarageInstall(unit);
+          unit.installDockPhase = "UNDOCK";
+        }
+        continue;
+      }
+      if (dockPhase === "UNDOCK") {
+        unit.orderType = "RETURN_TO_GARAGE";
+        unit.orderTargetId = garage.id;
+        unit.orderX = dockPoints.approach.x;
+        unit.orderZ = dockPoints.approach.z;
+        if (
+          this.isUnitNearPoint(unit, dockPoints.approach.x, dockPoints.approach.z)
+        ) {
+          this.resetGarageInstall(unit);
+          unit.orderType = "STOP";
+          unit.orderTargetId = "";
+        }
+      }
     }
+  }
+
+  private resetGarageInstall(unit: UnitSchema) {
+    unit.pendingInstallType = "";
+    unit.pendingInstallKey = "";
+    unit.pendingInstallGarageId = "";
+    unit.pendingInstallDuration = 0;
+    unit.installTimeRemaining = 0;
+    unit.installState = "IDLE";
+    unit.installDockPhase = "NONE";
+  }
+
+  private getGarageDockPoints(garage: BaseModuleSchema) {
+    const base = this.state.bases.get(garage.baseId);
+    const dx = garage.x - (base?.x ?? garage.x - 1);
+    const dz = garage.z - (base?.z ?? garage.z);
+    const length = Math.hypot(dx, dz) || 1;
+    const nx = dx / length;
+    const nz = dz / length;
+    return {
+      heading: Math.atan2(nz, nx),
+      approach: {
+        x: garage.x + nx * GARAGE_DOCK_APPROACH_OFFSET,
+        z: garage.z + nz * GARAGE_DOCK_APPROACH_OFFSET,
+      },
+      inside: {
+        x: garage.x - nx * GARAGE_DOCK_INSIDE_OFFSET,
+        z: garage.z - nz * GARAGE_DOCK_INSIDE_OFFSET,
+      },
+    };
+  }
+
+  private isUnitNearPoint(unit: UnitSchema, x: number, z: number) {
+    return Math.hypot(unit.x - x, unit.z - z) <= GARAGE_DOCK_PHASE_EPSILON;
+  }
+
+  private rotateUnitToward(unit: UnitSchema, targetRot: number, dt: number) {
+    const maxTurn = this.getUnitStats(unit).maxTurnRate * dt;
+    const wrappedDiff = ((targetRot - unit.rot + Math.PI) % (Math.PI * 2)) - Math.PI;
+    const delta = Math.max(-maxTurn, Math.min(maxTurn, wrappedDiff));
+    unit.rot += delta;
+    return Math.abs(wrappedDiff) <= GARAGE_DOCK_ALIGN_EPSILON;
   }
 
   private handleTechUpgrade(
@@ -2442,6 +2529,58 @@ export class SpaceRoom extends Colyseus.Room<SpaceState> {
         base.maxShields,
         base.shields + PASSIVE_SHIELD_REGEN_RATE * dt,
       );
+    }
+  }
+
+  private refreshUnitActionStates() {
+    for (const unit of this.state.units.values()) {
+      unit.actionTargetId = "";
+      unit.actionPhase = "NONE";
+      if (unit.installState === "QUEUED" || unit.installState === "INSTALLING") {
+        unit.actionState = "UPGRADING";
+        unit.actionTargetId = unit.pendingInstallGarageId;
+        unit.actionPhase =
+          unit.installDockPhase && unit.installDockPhase !== "NONE"
+            ? unit.installDockPhase
+            : unit.installState === "QUEUED"
+              ? "APPROACH"
+              : "SERVICE";
+        continue;
+      }
+      if (
+        unit.orderType === "HARVEST" &&
+        (unit.orderTargetId || unit.harvestTargetId)
+      ) {
+        unit.actionState = "MINING";
+        unit.actionTargetId = unit.harvestTargetId || unit.orderTargetId;
+        unit.actionPhase = unit.harvestWaitLeft > 0 ? "EXTRACTING" : "APPROACH";
+        continue;
+      }
+      if (unit.orderType === "RETURN_TO_REPAIR") {
+        unit.actionState = "REPAIRING";
+        unit.actionTargetId = unit.orderTargetId;
+        unit.actionPhase = "APPROACH";
+        continue;
+      }
+      const ownerBase = this.getPrimaryBaseForOwner(unit.owner);
+      const ownerRepairBay = ownerBase
+        ? this.findModuleByType(ownerBase.id, "REPAIR_BAY")
+        : null;
+      if (ownerRepairBay?.active) {
+        const distToRepairBay = Math.hypot(ownerRepairBay.x - unit.x, ownerRepairBay.z - unit.z);
+        const inRepairRange = distToRepairBay <= REPAIR_BAY_MODULE_RANGE;
+        if (inRepairRange && (unit.hp < unit.maxHp || unit.shields < unit.maxShields)) {
+          unit.actionState = "REPAIRING";
+          unit.actionTargetId = ownerRepairBay.id;
+          unit.actionPhase = "SERVICE";
+          continue;
+        }
+      }
+      if (Math.hypot(unit.vx, unit.vz) > 0.25) {
+        unit.actionState = "MOVING";
+        continue;
+      }
+      unit.actionState = "IDLE";
     }
   }
 

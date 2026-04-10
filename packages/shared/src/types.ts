@@ -36,6 +36,9 @@ export type UnitState = {
   maxShields: number;
   speed: number;
   tgt?: string;
+  actionState?: string;
+  actionPhase?: string;
+  actionTargetId?: string;
 };
 
 export type ShipStats = {

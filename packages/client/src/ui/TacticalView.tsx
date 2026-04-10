@@ -57,6 +57,13 @@ type FiringEffect = {
   muzzleIndex: number;
 };
 
+type ActionBeamEffect = {
+  line: THREE.Line;
+  unitId: string;
+  targetId: string;
+  kind: "MINING" | "REPAIRING";
+};
+
 const getUnitFogRadius = (unit: UnitSchema | DebugUnit) => {
   if ("unitType" in unit) {
     const bonus = unit.radarRangeBonus ?? 0;
@@ -467,6 +474,7 @@ export default function TacticalView({
   const selectedModuleIdRef = useRef<string | null>(null);
   const cameraModeRef = useRef<CameraMode>("squad");
   const firingEffectsRef = useRef<FiringEffect[]>([]);
+  const actionBeamsRef = useRef<Map<string, ActionBeamEffect>>(new Map());
   const weaponCooldownsRef = useRef<Map<string, number>>(new Map());
   const weaponMuzzleCycleRef = useRef<Map<string, number>>(new Map());
   const cameraTargetRef = useRef(new THREE.Vector3(0, 0, 0));
@@ -2037,6 +2045,18 @@ export default function TacticalView({
             mesh.position.copy(target);
           }
           mesh.rotation.y = -("rot" in unit ? unit.rot : 0);
+          const actionState = "actionState" in unit ? unit.actionState : "IDLE";
+          if (actionState === "MINING") {
+            mesh.position.y = Math.sin(clock.elapsedTime * 30 + unit.id.length) * 0.08;
+          } else if (actionState === "REPAIRING") {
+            mesh.position.y = Math.sin(clock.elapsedTime * 12 + unit.id.length) * 0.05;
+          } else if (actionState === "UPGRADING") {
+            mesh.position.y = Math.sin(clock.elapsedTime * 8 + unit.id.length) * 0.04;
+            mesh.rotation.z = Math.sin(clock.elapsedTime * 4 + unit.id.length) * 0.03;
+          } else {
+            mesh.position.y = 0;
+            mesh.rotation.z = 0;
+          }
           if ("vx" in unit && "vz" in unit && render.thrusters.length > 0) {
             const speed = Math.hypot(unit.vx, unit.vz);
             const normalized =
@@ -2188,6 +2208,64 @@ export default function TacticalView({
           const material = effect.line.material as THREE.LineBasicMaterial;
           material.opacity = Math.max(0, effect.ttl / effect.maxTtl);
         }
+      }
+      const activeActionBeamIds = new Set<string>();
+      if (activeUnits) {
+        activeUnits.forEach((unit) => {
+          const actionState = "actionState" in unit ? unit.actionState : "IDLE";
+          if (actionState !== "MINING" && actionState !== "REPAIRING") {
+            return;
+          }
+          const targetId = "actionTargetId" in unit ? unit.actionTargetId : "";
+          if (!targetId) {
+            return;
+          }
+          const beamId = `${unit.id}:${actionState}`;
+          activeActionBeamIds.add(beamId);
+          let effect = actionBeamsRef.current.get(beamId);
+          if (!effect) {
+            const geometry = new THREE.BufferGeometry();
+            geometry.setAttribute(
+              "position",
+              new THREE.BufferAttribute(new Float32Array(6), 3),
+            );
+            const material = new THREE.LineBasicMaterial({
+              color: actionState === "MINING" ? "#fbbf24" : "#34d399",
+              transparent: true,
+              opacity: 0.85,
+            });
+            const line = new THREE.Line(geometry, material);
+            scene.add(line);
+            effect = { line, unitId: unit.id, targetId, kind: actionState };
+            actionBeamsRef.current.set(beamId, effect);
+          } else {
+            effect.targetId = targetId;
+          }
+          const source = meshesRef.current.get(unit.id)?.mesh.position;
+          const targetResource = resourcesRef.current?.get(targetId);
+          const targetUnit =
+            unitsRef.current?.get(targetId) ?? fallbackUnitsRef.current.get(targetId);
+          const targetModule = modulesRef.current?.get(targetId);
+          const target = targetResource ?? targetUnit ?? targetModule;
+          if (!source || !target) {
+            return;
+          }
+          const positions = effect.line.geometry.getAttribute(
+            "position",
+          ) as THREE.BufferAttribute;
+          positions.setXYZ(0, source.x, 0.3 + source.y, source.z);
+          positions.setXYZ(1, target.x, 0.5, target.z);
+          positions.needsUpdate = true;
+        });
+      }
+      for (const [beamId, effect] of actionBeamsRef.current.entries()) {
+        if (activeActionBeamIds.has(beamId)) {
+          continue;
+        }
+        scene.remove(effect.line);
+        effect.line.geometry.dispose();
+        (effect.line.material as THREE.Material).dispose();
+        actionBeamsRef.current.delete(beamId);
       }
       basesRef.current?.forEach((base) => {
         const render = baseMeshesRef.current.get(base.id);
@@ -2398,6 +2476,12 @@ export default function TacticalView({
         (effect.line.material as THREE.Material).dispose();
       });
       firingEffectsRef.current = [];
+      actionBeamsRef.current.forEach((effect) => {
+        scene.remove(effect.line);
+        effect.line.geometry.dispose();
+        (effect.line.material as THREE.Material).dispose();
+      });
+      actionBeamsRef.current.clear();
       renderer.dispose();
       fighterGeometry.dispose();
       loadedFighterGeometry?.dispose();
@@ -3368,6 +3452,10 @@ export default function TacticalView({
     selectedUnit && "installTimeRemaining" in selectedUnit
       ? selectedUnit.installTimeRemaining
       : 0;
+  const selectedUnitActionState =
+    selectedUnit && "actionState" in selectedUnit ? selectedUnit.actionState : "IDLE";
+  const selectedUnitActionPhase =
+    selectedUnit && "actionPhase" in selectedUnit ? selectedUnit.actionPhase : "NONE";
   const selectedUnitTechSlotsUsed =
     selectedUnit && "techSlotsUsed" in selectedUnit ? selectedUnit.techSlotsUsed : 0;
   const selectedUnitHasShieldPackage =
@@ -4389,6 +4477,9 @@ export default function TacticalView({
                   {selectedUnitInstallState !== "IDLE"
                     ? ` (${Math.ceil(selectedUnitInstallTimeRemaining)}s)`
                     : ""}
+                </p>
+                <p className="hud-copy">
+                  Action: {selectedUnitActionState} · Phase: {selectedUnitActionPhase}
                 </p>
                 <div className="unit-behavior-panel">
                   <p className="mount-meta">Unit behavior</p>
