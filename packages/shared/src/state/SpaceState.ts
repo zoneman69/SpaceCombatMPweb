@@ -38,6 +38,10 @@ export class UnitSchema extends Schema {
   @type("string") pendingInstallKey = "";
   @type("string") pendingInstallGarageId = "";
   @type("number") pendingInstallDuration = 0;
+  @type("string") installDockPhase = "NONE";
+  @type("string") actionState = "IDLE";
+  @type("string") actionPhase = "NONE";
+  @type("string") actionTargetId = "";
   @type("number") techSlotsUsed = 0;
   @type("boolean") techShieldPackage = false;
   @type("boolean") techHullPackage = false;
